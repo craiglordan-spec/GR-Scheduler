@@ -212,6 +212,7 @@ const CATCOL={exec:'#1D4ED8',equip:'#B45309',people:'#7C3AED',ms:'#0E9488'};
 const STCFG={Draft:{c:'#6B7280',bg:'#F3F4F6'},Submitted:{c:'#92400E',bg:'#FFF7ED'},Approved:{c:'#1D4ED8',bg:'#EFF6FF'},Paid:{c:'#15803D',bg:'#F0FDF4'},Overdue:{c:'#DC2626',bg:'#FEF2F2'}};
 let TOKEN=localStorage.getItem('gr_token')||'', ME=null;
 let projects=[],ar=[],ap=[],po=[],activities=[],equipment=[],bookings=[],crew=[];
+let idStatus={source:'',error:'',count:0};
 let dayW=3.05; const ZOOM_BASE=3.05;
 const shown={exec:true,equip:true,people:true,inv:true};
 let selected=null, tab='activities';
@@ -249,7 +250,7 @@ async function boot(){
   const chip=document.getElementById('srcChip');
   chip.className='src-chip '+(ME.invoicedesk?'src-live':'src-sample');
   chip.innerHTML=`<span class="dot" style="background:${ME.invoicedesk?'#0891B2':'#D97706'}"></span>${ME.invoicedesk?'Linked to InvoiceDesk':'Sample data (InvoiceDesk not linked)'}`;
-  await loadAll(); computeWindow(); render(); renderDrawer();
+  await loadAll(); computeWindow(); render(); renderDrawer(); updateChip();
   if(projects[0])showDetail(projects[0].id);
 }
 async function loadAll(){
@@ -257,7 +258,16 @@ async function loadAll(){
     api('/api/invoicedesk/projects'),api('/api/invoicedesk/ar'),api('/api/invoicedesk/ap'),api('/api/invoicedesk/po'),
     api('/api/activities'),api('/api/equipment'),api('/api/bookings'),api('/api/crew')
   ]);
-  projects=p.data; ar=a1.data; ap=a2.data; po=a3.data; activities=act; equipment=eq; bookings=bk; crew=cr;
+  projects=p.data||[]; ar=a1.data||[]; ap=a2.data||[]; po=a3.data||[]; activities=act||[]; equipment=eq||[]; bookings=bk||[]; crew=cr||[];
+  idStatus={source:p.source||'',error:p.error||'',count:projects.length};
+}
+function updateChip(){
+  const chip=document.getElementById('srcChip'); if(!chip)return;
+  if(!ME.invoicedesk){chip.className='src-chip src-sample';chip.innerHTML=`<span class="dot" style="background:#D97706"></span>Sample data — InvoiceDesk not configured`;return;}
+  const s=idStatus.source,n=idStatus.count;
+  if(s==='live'||s==='cache'){chip.className='src-chip src-live';chip.innerHTML=`<span class="dot" style="background:#0891B2"></span>Linked to InvoiceDesk · ${n} project${n!==1?'s':''}`;}
+  else if(s==='stale'){chip.className='src-chip src-sample';chip.innerHTML=`<span class="dot" style="background:#D97706"></span>InvoiceDesk read failing${idStatus.error?' ('+esc(idStatus.error)+')':''} · showing cached`;}
+  else {chip.className='src-chip src-sample';chip.innerHTML=`<span class="dot" style="background:#D97706"></span>InvoiceDesk read failed${idStatus.error?' ('+esc(idStatus.error)+')':''} · showing sample`;}
 }
 
 // ─── Timeline window auto-fit ─────────────────────────────────────────────────

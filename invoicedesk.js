@@ -40,14 +40,20 @@ async function fetchPath(path) {
   const hit = cache[path];
   if (hit && Date.now() - hit.at < TTL) return { data: hit.data, source: "cache" };
   try {
-    const res = await fetch(`${URL}${path}`, { headers: { "x-api-key": KEY } });
-    if (!res.ok) throw new Error(`InvoiceDesk ${path} -> ${res.status}`);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    let res;
+    try { res = await fetch(`${URL}${path}`, { headers: { "x-api-key": KEY }, signal: ctrl.signal }); }
+    finally { clearTimeout(timer); }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (!Array.isArray(data)) throw new Error("unexpected response shape (not an array)");
     cache[path] = { at: Date.now(), data };
     return { data, source: "live" };
   } catch (e) {
-    console.error("[invoicedesk]", e.message, "— serving", hit ? "stale cache" : "sample");
-    return { data: hit ? hit.data : SAMPLE[path.replace("/api/", "")] || [], source: hit ? "stale" : "sample" };
+    const reason = e.name === "AbortError" ? "timeout" : e.message;
+    console.error("[invoicedesk]", path, "read failed:", reason, "— serving", hit ? "stale cache" : "sample");
+    return { data: hit ? hit.data : SAMPLE[path.replace("/api/", "")] || [], source: hit ? "stale" : "sample", error: reason };
   }
 }
 
