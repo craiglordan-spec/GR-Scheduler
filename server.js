@@ -93,7 +93,7 @@ crud("bookings", "bk");
 crud("crew", "cr");
 
 // ─── InvoiceDesk read proxy (cached, server-to-server) ────────────────────────
-const proxy = (fn) => async (req, res) => { try { const r = await fn(); res.json({ source: r.source, data: r.data }); } catch (e) { res.status(502).json({ error: e.message }); } };
+const proxy = (fn) => async (req, res) => { try { const r = await fn(); res.json({ source: r.source, data: r.data, error: r.error || null }); } catch (e) { res.status(502).json({ error: e.message }); } };
 app.get("/api/invoicedesk/projects", auth, proxy(invoicedesk.projects));
 app.get("/api/invoicedesk/ar", auth, proxy(invoicedesk.ar));
 app.get("/api/invoicedesk/ap", auth, proxy(invoicedesk.ap));
