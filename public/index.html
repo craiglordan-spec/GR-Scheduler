@@ -213,6 +213,8 @@
 // ─── State ─────────────────────────────────────────────────────────────────
 const DAY=86400000, ROW_H=34, HEAD_H=56;
 const CATCOL={exec:'#1D4ED8',equip:'#B45309',people:'#7C3AED',ms:'#0E9488'};
+const CATLABEL={exec:'Execution',equipment:'Equipment',equip:'Equipment',people:'People',milestone:'Milestone',ms:'Milestone'};
+const CATKEY={exec:'exec',equipment:'equip',equip:'equip',people:'people',milestone:'ms',ms:'ms'}; // category value -> colour/toggle key
 const STCFG={Draft:{c:'#6B7280',bg:'#F3F4F6'},Submitted:{c:'#92400E',bg:'#FFF7ED'},Approved:{c:'#1D4ED8',bg:'#EFF6FF'},Paid:{c:'#15803D',bg:'#F0FDF4'},Overdue:{c:'#DC2626',bg:'#FEF2F2'}};
 let TOKEN=localStorage.getItem('gr_token')||'', ME=null;
 let projects=[],ar=[],ap=[],po=[],activities=[],equipment=[],bookings=[],crew=[];
@@ -302,7 +304,7 @@ function nodesFor(pj){
   const ns=[];
   activities.filter(a=>a.projectId===pj).forEach(a=>ns.push({
     kind:a.category==='milestone'?'milestone':'activity',id:a.id,pj,name:a.name,order:a.order,
-    cat:a.category==='milestone'?'ms':(a.category||'exec'),start:d(a.start),end:d(a.end||a.start),
+    cat:a.category==='milestone'?'ms':(CATKEY[a.category]||'exec'),start:d(a.start),end:d(a.end||a.start),
     prog:a.percentComplete||0,deps:a.deps||[]}));
   equipment.filter(e=>e.projectId===pj).forEach(e=>ns.push({
     kind:'equipment',id:e.id,pj,name:e.name,cat:'equip',order:e.order,start:d(e.orderDate),end:d(e.eta||e.orderDate),
@@ -531,7 +533,7 @@ function renderDrawer(){
   };
   const ordered=(list,dateKey)=>list.slice().sort((a,b)=>(a.projectId||'').localeCompare(b.projectId||'')||((a.order==null?9e9:a.order)-(b.order==null?9e9:b.order))||(new Date(a[dateKey]||0)-new Date(b[dateKey]||0)));
   if(tab==='activities'){
-    body.innerHTML=table(['Project','Order','Activity','Category','Start','End','%','Deps',''],ordered(activities,'start').map(a=>`<tr><td>${esc(a.projectId)}</td><td style="color:var(--text3)">${a.order==null?'—':a.order+1}</td><td>${esc(a.name)}</td><td>${esc(a.category)}</td><td>${esc(a.start)}</td><td>${esc(a.end)}</td><td>${Math.round((a.percentComplete||0)*100)}%</td><td style="color:var(--text3)">${esc((a.deps||[]).join(', '))}</td>${acted(a.id,'activities',true)}</tr>`).join(''));
+    body.innerHTML=table(['Project','Order','Activity','Category','Start','End','%','Deps',''],ordered(activities,'start').map(a=>`<tr><td>${esc(a.projectId)}</td><td style="color:var(--text3)">${a.order==null?'—':a.order+1}</td><td>${esc(a.name)}</td><td>${esc(CATLABEL[a.category]||a.category)}</td><td>${esc(a.start)}</td><td>${esc(a.end)}</td><td>${Math.round((a.percentComplete||0)*100)}%</td><td style="color:var(--text3)">${esc((a.deps||[]).join(', '))}</td>${acted(a.id,'activities',true)}</tr>`).join(''));
   }else if(tab==='equipment'){
     body.innerHTML=table(['Project','Item','Supplier','Order date','ETA','Status','Blocks','Src',''],ordered(equipment,'orderDate').map(e=>`<tr><td>${esc(e.projectId)}</td><td>${esc(e.name)}</td><td>${esc(e.supplier)}</td><td>${esc(e.orderDate)}</td><td>${esc(e.eta)}</td><td>${esc(e.status)}</td><td style="color:var(--text3)">${esc(e.blocksActivityId||'')}</td><td><span class="badge" style="background:var(--surface2);color:var(--text3)">${esc(e.source||'manual')}</span></td>${acted(e.id,'equipment',true)}</tr>`).join(''));
   }else if(tab==='bookings'){
@@ -567,8 +569,12 @@ function openForm(type,id){
   if(type==='activities')fields=`
     <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
     <div class="field"><label>Activity name</label><input id="f-name" value="${esc(rec.name)}"/></div>
-    <div class="grid2"><div class="field"><label>Category</label><select id="f-category">${selOpts(['exec','equipment','people','milestone'],rec.category||'exec')}</select></div><div class="field"><label>% complete</label><input id="f-percentComplete" type="number" min="0" max="100" value="${rec.percentComplete!=null?Math.round(rec.percentComplete*100):0}"/></div></div>
-    <div class="grid2"><div class="field"><label>Start</label><input id="f-start" type="date" value="${esc(rec.start)}"/></div><div class="field"><label>End</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div></div>
+    <div class="grid2"><div class="field"><label>Category</label><select id="f-category">${['exec','equipment','people','milestone'].map(c=>`<option value="${c}" ${c===(rec.category||'exec')?'selected':''}>${CATLABEL[c]}</option>`).join('')}</select></div><div class="field"><label>% complete</label><input id="f-percentComplete" type="number" min="0" max="100" value="${rec.percentComplete!=null?Math.round(rec.percentComplete*100):0}"/></div></div>
+    <div class="grid2"><div class="field"><label>Start</label><input id="f-start" type="date" value="${esc(rec.start)}"/></div><div class="field"><label>Set finish by</label><select id="f-finmode" onchange="toggleFinishMode()"><option value="date">End date</option><option value="days">Duration (days)</option></select></div></div>
+    <div class="grid2">
+      <div class="field" id="wrap-end"><label>End date</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div>
+      <div class="field" id="wrap-days" style="display:none"><label>Duration (days, incl.)</label><input id="f-days" type="number" min="1" value="${(rec.start&&rec.end)?(Math.round((new Date(rec.end)-new Date(rec.start))/86400000)+1):''}" placeholder="e.g. 10"/></div>
+    </div>
     <div class="field"><label>Depends on (activity)</label><select id="f-deps">${actOpts((rec.deps||[])[0],rec.projectId)}</select></div>`;
   if(type==='equipment')fields=`
     <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
@@ -590,10 +596,15 @@ function openForm(type,id){
   document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeForm()"><div class="modal"><h3>${id?'Edit':'New'} ${singular}</h3>${fields}<div style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" onclick="saveForm('${type}','${id||''}')">Save</button></div></div></div>`;
 }
 function closeForm(){document.getElementById('modalRoot').innerHTML='';}
+function toggleFinishMode(){const m=gv('f-finmode');const we=document.getElementById('wrap-end'),wd=document.getElementById('wrap-days');if(we)we.style.display=m==='days'?'none':'';if(wd)wd.style.display=m==='days'?'':'none';}
 const gv=id=>{const el=document.getElementById(id);return el?el.value:'';};
 async function saveForm(type,id){
   let body={};
-  if(type==='activities')body={projectId:gv('f-projectId'),name:gv('f-name'),category:gv('f-category'),percentComplete:(Number(gv('f-percentComplete'))||0)/100,start:gv('f-start'),end:gv('f-end'),deps:gv('f-deps')?[gv('f-deps')]:[]};
+  if(type==='activities'){
+    let end=gv('f-end');
+    if(gv('f-finmode')==='days'){const days=Math.max(1,Number(gv('f-days'))||1);const s=gv('f-start');if(s){const dt=new Date(s);dt.setDate(dt.getDate()+days-1);end=dt.toISOString().slice(0,10);}}
+    body={projectId:gv('f-projectId'),name:gv('f-name'),category:gv('f-category'),percentComplete:(Number(gv('f-percentComplete'))||0)/100,start:gv('f-start'),end,deps:gv('f-deps')?[gv('f-deps')]:[]};
+  }
   if(type==='equipment')body={projectId:gv('f-projectId'),name:gv('f-name'),supplier:gv('f-supplier'),status:gv('f-status'),orderDate:gv('f-orderDate'),eta:gv('f-eta'),blocksActivityId:gv('f-blocksActivityId')||null,source:id?undefined:'manual'};
   if(type==='bookings')body={projectId:gv('f-projectId'),type:gv('f-type'),crewId:gv('f-crewId'),label:gv('f-label'),start:gv('f-start'),end:gv('f-end'),status:gv('f-status'),blocksActivityId:gv('f-blocksActivityId')||null};
   if(type==='crew')body={name:gv('f-name'),role:gv('f-role'),ticketExpiry:gv('f-ticketExpiry'),notes:gv('f-notes')};
