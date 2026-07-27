@@ -163,6 +163,8 @@
           <button class="btn" data-zoom="0.55">Fit</button>
           <button class="btn on" data-zoom="1">Month</button>
           <button class="btn" data-zoom="2.1">Week</button>
+          <span style="width:6px"></span>
+          <button class="btn on" id="scopeBtn" onclick="toggleScope()" title="Show only projects that have activities, equipment or bookings">Scheduled only</button>
         </div>
       </div>
       <div class="gantt">
@@ -216,6 +218,7 @@ let idStatus={source:'',error:'',count:0};
 let dayW=3.05; const ZOOM_BASE=3.05;
 const shown={exec:true,equip:true,people:true,inv:true};
 let selected=null, tab='activities';
+let showEmptyProjects=false;
 let START=new Date(2026,6,1), END=new Date(2027,2,31);
 const TODAY=new Date();
 
@@ -251,7 +254,8 @@ async function boot(){
   chip.className='src-chip '+(ME.invoicedesk?'src-live':'src-sample');
   chip.innerHTML=`<span class="dot" style="background:${ME.invoicedesk?'#0891B2':'#D97706'}"></span>${ME.invoicedesk?'Linked to InvoiceDesk':'Sample data (InvoiceDesk not linked)'}`;
   await loadAll(); computeWindow(); render(); renderDrawer(); updateChip();
-  if(projects[0])showDetail(projects[0].id);
+  const firstScheduled=projects.find(p=>projectHasSchedule(p.id))||projects[0];
+  if(firstScheduled)showDetail(firstScheduled.id);
 }
 async function loadAll(){
   const [p,a1,a2,a3,act,eq,bk,cr]=await Promise.all([
@@ -332,9 +336,13 @@ function markCritical(nodes){
 }
 
 // ─── Render Gantt ─────────────────────────────────────────────────────────────
+function projectHasSchedule(id){
+  return activities.some(a=>a.projectId===id)||equipment.some(e=>e.projectId===id)||bookings.some(b=>b.projectId===id);
+}
 function buildRows(){
   const rows=[]; const allEdges=[]; const critEdges=new Set();
-  projects.forEach(p=>{
+  const list=showEmptyProjects?projects:projects.filter(p=>projectHasSchedule(p.id));
+  list.forEach(p=>{
     rows.push({grp:true,pj:p.id,p});
     const ns=nodesFor(p.id);
     const ce=markCritical(ns);
@@ -494,6 +502,7 @@ function bindTips(){
 }
 
 // ─── Data drawer (CRUD) ───────────────────────────────────────────────────────
+function toggleScope(){showEmptyProjects=!showEmptyProjects;const b=document.getElementById('scopeBtn');b.textContent=showEmptyProjects?'All projects':'Scheduled only';b.classList.toggle('on',!showEmptyProjects);render();}
 function setTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));renderDrawer();}
 function pjName(id){const p=projects.find(p=>p.id===id);return p?`${id}`:id||'—';}
 function crewName(id){const c=crew.find(c=>c.id===id);return c?c.name:'—';}
