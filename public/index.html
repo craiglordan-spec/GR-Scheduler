@@ -296,14 +296,14 @@ const arEx=inv=>(inv.lines||[]).reduce((s,l)=>s+(Number(l.qty)||0)*(Number(l.rat
 function nodesFor(pj){
   const ns=[];
   activities.filter(a=>a.projectId===pj).forEach(a=>ns.push({
-    kind:a.category==='milestone'?'milestone':'activity',id:a.id,pj,name:a.name,
+    kind:a.category==='milestone'?'milestone':'activity',id:a.id,pj,name:a.name,order:a.order,
     cat:a.category==='milestone'?'ms':(a.category||'exec'),start:d(a.start),end:d(a.end||a.start),
     prog:a.percentComplete||0,deps:a.deps||[]}));
   equipment.filter(e=>e.projectId===pj).forEach(e=>ns.push({
-    kind:'equipment',id:e.id,pj,name:e.name,cat:'equip',start:d(e.orderDate),end:d(e.eta||e.orderDate),
+    kind:'equipment',id:e.id,pj,name:e.name,cat:'equip',order:e.order,start:d(e.orderDate),end:d(e.eta||e.orderDate),
     blocks:e.blocksActivityId,supplier:e.supplier,status:e.status,crit:false}));
   bookings.filter(b=>b.projectId===pj).forEach(b=>{const c=crew.find(c=>c.id===b.crewId);ns.push({
-    kind:'booking',id:b.id,pj,name:`${b.label||b.type} — ${c?c.name:''}`,cat:'people',start:d(b.start),end:d(b.end||b.start),
+    kind:'booking',id:b.id,pj,name:`${b.label||b.type} — ${c?c.name:''}`,cat:'people',order:b.order,start:d(b.start),end:d(b.end||b.start),
     blocks:b.blocksActivityId,bstatus:b.status});});
   return ns;
 }
@@ -339,9 +339,10 @@ function markCritical(nodes){
 function projectHasSchedule(id){
   return activities.some(a=>a.projectId===id)||equipment.some(e=>e.projectId===id)||bookings.some(b=>b.projectId===id);
 }
+function visibleProjects(){return showEmptyProjects?projects:projects.filter(p=>projectHasSchedule(p.id));}
 function buildRows(){
   const rows=[]; const allEdges=[]; const critEdges=new Set();
-  const list=showEmptyProjects?projects:projects.filter(p=>projectHasSchedule(p.id));
+  const list=visibleProjects();
   list.forEach(p=>{
     rows.push({grp:true,pj:p.id,p});
     const ns=nodesFor(p.id);
@@ -350,9 +351,10 @@ function buildRows(){
     const {es}=edgesFor(ns);
     es.forEach(e=>allEdges.push(e));
     // order: activities/milestones by start, then equipment, then bookings
-    const acts=ns.filter(n=>n.kind==='activity'||n.kind==='milestone').sort((a,b)=>(a.start||0)-(b.start||0));
-    const eqs=ns.filter(n=>n.kind==='equipment').sort((a,b)=>(a.start||0)-(b.start||0));
-    const bks=ns.filter(n=>n.kind==='booking').sort((a,b)=>(a.start||0)-(b.start||0));
+    const byOrder=(a,b)=>((a.order==null?9e9:a.order)-(b.order==null?9e9:b.order))||((a.start||0)-(b.start||0));
+    const acts=ns.filter(n=>n.kind==='activity'||n.kind==='milestone').sort(byOrder);
+    const eqs=ns.filter(n=>n.kind==='equipment').sort(byOrder);
+    const bks=ns.filter(n=>n.kind==='booking').sort(byOrder);
     [...acts,...eqs,...bks].forEach(n=>rows.push({grp:false,n}));
   });
   return {rows,allEdges,critEdges};
@@ -444,15 +446,18 @@ function drawDeps(rows,edges,critEdges){
 
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
 function renderKPIs(){
-  const totVal=projects.reduce((s,p)=>s+(Number(p.value)||0),0);
-  const issued=ar.filter(i=>i.status!=='Draft'),invAmt=issued.reduce((s,i)=>s+arEx(i),0);
-  const paid=ar.filter(i=>i.status==='Paid').reduce((s,i)=>s+arEx(i),0);
-  const overdue=ar.filter(i=>i.status==='Overdue');
-  const eqOrder=equipment.filter(e=>e.status!=='delivered').length;
-  const todo=bookings.filter(b=>b.status==='todo').length;
+  const vp=visibleProjects(); const ids=new Set(vp.map(p=>p.id));
+  const arV=ar.filter(i=>ids.has(i.projectId));
+  const totVal=vp.reduce((s,p)=>s+(Number(p.value)||0),0);
+  const issued=arV.filter(i=>i.status!=='Draft'),invAmt=issued.reduce((s,i)=>s+arEx(i),0);
+  const paid=arV.filter(i=>i.status==='Paid').reduce((s,i)=>s+arEx(i),0);
+  const overdue=arV.filter(i=>i.status==='Overdue');
+  const eqOrder=equipment.filter(e=>ids.has(e.projectId)&&e.status!=='delivered').length;
+  const todo=bookings.filter(b=>ids.has(b.projectId)&&b.status==='todo').length;
+  const scope=showEmptyProjects?'all projects':'scheduled';
   document.getElementById('kpis').innerHTML=[
-    {l:'Active projects',v:projects.filter(p=>p.status==='Active').length,s:projects.length+' total'},
-    {l:'Contract value',v:fmt(totVal),s:'AUD'},
+    {l:'Projects on programme',v:vp.filter(p=>p.status==='Active').length,s:vp.length+' shown · '+scope},
+    {l:'Contract value',v:fmt(totVal),s:'AUD · '+scope},
     {l:'Invoiced',v:fmt(invAmt),s:totVal?Math.round(invAmt/totVal*100)+'% of value':''},
     {l:'Paid',v:fmt(paid),s:fmt(invAmt-paid)+' outstanding'},
     {l:'Overdue',v:overdue.length?fmt(overdue.reduce((s,i)=>s+arEx(i),0)):'—',s:overdue.length+' invoice'+(overdue.length!==1?'s':''),alert:overdue.length>0},
@@ -514,16 +519,35 @@ function renderDrawer(){
     :`<button class="btn sm primary" onclick="openForm('${tab}')">+ ${addLbl}</button>`
   ):'';
   const body=document.getElementById('drawerBody');
-  const acted=(id,type)=>canWrite()?`<td style="white-space:nowrap"><button class="btn sm" onclick="openForm('${type}','${id}')">Edit</button> <button class="btn sm danger" onclick="del('${type}','${id}')">✕</button></td>`:'<td></td>';
+  const acted=(id,type,canMove)=>{
+    if(!canWrite())return '<td></td>';
+    const mv=canMove?`<button class="btn sm" title="Move up" onclick="moveEntry('${type}','${id}',-1)">↑</button> <button class="btn sm" title="Move down" onclick="moveEntry('${type}','${id}',1)">↓</button> `:'';
+    return `<td style="white-space:nowrap">${mv}<button class="btn sm" onclick="openForm('${type}','${id}')">Edit</button> <button class="btn sm danger" onclick="del('${type}','${id}')">✕</button></td>`;
+  };
+  const ordered=(list,dateKey)=>list.slice().sort((a,b)=>(a.projectId||'').localeCompare(b.projectId||'')||((a.order==null?9e9:a.order)-(b.order==null?9e9:b.order))||(new Date(a[dateKey]||0)-new Date(b[dateKey]||0)));
   if(tab==='activities'){
-    body.innerHTML=table(['Project','Activity','Category','Start','End','%','Deps',''],activities.map(a=>`<tr><td>${esc(a.projectId)}</td><td>${esc(a.name)}</td><td>${esc(a.category)}</td><td>${esc(a.start)}</td><td>${esc(a.end)}</td><td>${Math.round((a.percentComplete||0)*100)}%</td><td style="color:var(--text3)">${esc((a.deps||[]).join(', '))}</td>${acted(a.id,'activities')}</tr>`).join(''));
+    body.innerHTML=table(['Project','Order','Activity','Category','Start','End','%','Deps',''],ordered(activities,'start').map(a=>`<tr><td>${esc(a.projectId)}</td><td style="color:var(--text3)">${a.order==null?'—':a.order+1}</td><td>${esc(a.name)}</td><td>${esc(a.category)}</td><td>${esc(a.start)}</td><td>${esc(a.end)}</td><td>${Math.round((a.percentComplete||0)*100)}%</td><td style="color:var(--text3)">${esc((a.deps||[]).join(', '))}</td>${acted(a.id,'activities',true)}</tr>`).join(''));
   }else if(tab==='equipment'){
-    body.innerHTML=table(['Project','Item','Supplier','Order','ETA','Status','Blocks','Src',''],equipment.map(e=>`<tr><td>${esc(e.projectId)}</td><td>${esc(e.name)}</td><td>${esc(e.supplier)}</td><td>${esc(e.orderDate)}</td><td>${esc(e.eta)}</td><td>${esc(e.status)}</td><td style="color:var(--text3)">${esc(e.blocksActivityId||'')}</td><td><span class="badge" style="background:var(--surface2);color:var(--text3)">${esc(e.source||'manual')}</span></td>${acted(e.id,'equipment')}</tr>`).join(''));
+    body.innerHTML=table(['Project','Item','Supplier','Order date','ETA','Status','Blocks','Src',''],ordered(equipment,'orderDate').map(e=>`<tr><td>${esc(e.projectId)}</td><td>${esc(e.name)}</td><td>${esc(e.supplier)}</td><td>${esc(e.orderDate)}</td><td>${esc(e.eta)}</td><td>${esc(e.status)}</td><td style="color:var(--text3)">${esc(e.blocksActivityId||'')}</td><td><span class="badge" style="background:var(--surface2);color:var(--text3)">${esc(e.source||'manual')}</span></td>${acted(e.id,'equipment',true)}</tr>`).join(''));
   }else if(tab==='bookings'){
-    body.innerHTML=table(['Project','Type','Who','Detail','Start','End','Status','Blocks',''],bookings.map(b=>`<tr><td>${esc(b.projectId)}</td><td>${esc(b.type)}</td><td>${esc(crewName(b.crewId))}</td><td>${esc(b.label||'')}</td><td>${esc(b.start)}</td><td>${esc(b.end)}</td><td>${esc(b.status)}</td><td style="color:var(--text3)">${esc(b.blocksActivityId||'')}</td>${acted(b.id,'bookings')}</tr>`).join(''));
+    body.innerHTML=table(['Project','Type','Who','Detail','Start','End','Status','Blocks',''],ordered(bookings,'start').map(b=>`<tr><td>${esc(b.projectId)}</td><td>${esc(b.type)}</td><td>${esc(crewName(b.crewId))}</td><td>${esc(b.label||'')}</td><td>${esc(b.start)}</td><td>${esc(b.end)}</td><td>${esc(b.status)}</td><td style="color:var(--text3)">${esc(b.blocksActivityId||'')}</td>${acted(b.id,'bookings',true)}</tr>`).join(''));
   }else{
-    body.innerHTML=table(['Name','Role','Ticket expiry','Notes',''],crew.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.role)}</td><td>${esc(c.ticketExpiry||'')}</td><td>${esc(c.notes||'')}</td>${acted(c.id,'crew')}</tr>`).join(''));
+    body.innerHTML=table(['Name','Role','Ticket expiry','Notes',''],crew.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.role)}</td><td>${esc(c.ticketExpiry||'')}</td><td>${esc(c.notes||'')}</td>${acted(c.id,'crew',false)}</tr>`).join(''));
   }
+}
+// Move an entry up/down within its project (persists an `order` index on the group)
+async function moveEntry(type,id,dir){
+  const list=({activities,equipment,bookings}[type]); if(!list)return;
+  const item=list.find(x=>x.id===id); if(!item)return;
+  const dateKey=type==='equipment'?'orderDate':'start';
+  const group=list.filter(x=>x.projectId===item.projectId).sort((a,b)=>((a.order==null?9e9:a.order)-(b.order==null?9e9:b.order))||(new Date(a[dateKey]||0)-new Date(b[dateKey]||0)));
+  const i=group.findIndex(x=>x.id===id), j=i+dir;
+  if(j<0||j>=group.length)return;
+  [group[i],group[j]]=[group[j],group[i]];
+  try{
+    await Promise.all(group.map((x,k)=> x.order!==k ? api(`/api/${type}/${x.id}`,{method:'PUT',body:JSON.stringify({order:k})}) : null).filter(Boolean));
+    await loadAll(); renderDrawer(); if(selected)showDetail(selected); else render();
+  }catch(e){alert('Reorder failed: '+e.message);}
 }
 function table(h,rows){return `<table><thead><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${h.length}" style="padding:24px;text-align:center;color:var(--text3)">Nothing yet</td></tr>`}</tbody></table>`;}
 
