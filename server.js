@@ -13,8 +13,14 @@ const app = express();
 app.use(express.json({ limit: "2mb" }));
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+// Prefer an explicit DATA_DIR, else the Railway volume mount (auto-set when a
+// volume is attached), else the (ephemeral) local folder. PERSISTENT is false
+// only when we fall back to local disk — surfaced in the UI as a warning.
+const VOL = process.env.RAILWAY_VOLUME_MOUNT_PATH || "";
+const DATA_DIR = process.env.DATA_DIR || VOL || path.join(__dirname, "data");
+const PERSISTENT = Boolean(process.env.DATA_DIR || VOL);
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+console.log(`[storage] DATA_DIR=${DATA_DIR} persistent=${PERSISTENT}${VOL ? ` (volume ${VOL})` : ""}`);
 const FILES = {
   activities: path.join(DATA_DIR, "activities.json"),
   equipment: path.join(DATA_DIR, "equipment.json"),
@@ -67,7 +73,7 @@ function requireRole(...roles) {
 }
 const canWrite = requireRole("admin", "scheduler");
 
-app.get("/api/me", auth, (req, res) => res.json({ username: req.user.username, role: req.user.role, invoicedesk: invoicedesk.configured() }));
+app.get("/api/me", auth, (req, res) => res.json({ username: req.user.username, role: req.user.role, invoicedesk: invoicedesk.configured(), persistent: PERSISTENT }));
 
 // ─── Generic CRUD factory for a JSON store ────────────────────────────────────
 function crud(name, prefix) {
@@ -121,7 +127,7 @@ app.post("/api/equipment/import-pos", auth, canWrite, async (req, res) => {
 function weeksBetween(a, b) { if (!a || !b) return null; const d = (new Date(b) - new Date(a)) / 604800000; return d > 0 ? Math.round(d) : null; }
 
 // ─── Static + health ──────────────────────────────────────────────────────────
-app.get("/health", (_, res) => res.json({ ok: true, invoicedesk: invoicedesk.configured(), ts: new Date().toISOString() }));
+app.get("/health", (_, res) => res.json({ ok: true, invoicedesk: invoicedesk.configured(), persistent: PERSISTENT, dataDir: DATA_DIR, ts: new Date().toISOString() }));
 app.use(express.static(path.join(__dirname, "public")));
 app.get("*", (_, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 

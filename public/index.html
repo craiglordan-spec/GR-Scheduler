@@ -148,6 +148,8 @@
     </div>
   </header>
 
+  <div id="persistWarn" style="display:none;background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:12.5px;font-weight:600"></div>
+
   <div class="kpis" id="kpis"></div>
 
   <div class="layout">
@@ -253,6 +255,9 @@ async function boot(){
   const chip=document.getElementById('srcChip');
   chip.className='src-chip '+(ME.invoicedesk?'src-live':'src-sample');
   chip.innerHTML=`<span class="dot" style="background:${ME.invoicedesk?'#0891B2':'#D97706'}"></span>${ME.invoicedesk?'Linked to InvoiceDesk':'Sample data (InvoiceDesk not linked)'}`;
+  const pw=document.getElementById('persistWarn');
+  if(ME.persistent===false){pw.style.display='block';pw.textContent='⚠ Storage is NOT persistent — entries will be lost on the next redeploy. Attach a Railway volume to this service (or set DATA_DIR to its mount path) and redeploy.';}
+  else{pw.style.display='none';}
   await loadAll(); computeWindow(); render(); renderDrawer(); updateChip();
   const firstScheduled=projects.find(p=>projectHasSchedule(p.id))||projects[0];
   if(firstScheduled)showDetail(firstScheduled.id);
