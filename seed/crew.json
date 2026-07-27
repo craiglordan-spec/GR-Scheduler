@@ -1,0 +1,6 @@
+[
+  { "id": "cr_craig", "name": "Craig Lordan", "role": "Lead Engineer", "notes": "" },
+  { "id": "cr_dan", "name": "Dan Mercer", "role": "Protection Technician", "ticketExpiry": "2027-05-31", "notes": "HV switching ticket" },
+  { "id": "cr_sam", "name": "Sam Iuta", "role": "Comms Technician", "notes": "PNG-based" },
+  { "id": "cr_alex", "name": "Alex Whitton", "role": "Field Engineer", "notes": "" }
+]

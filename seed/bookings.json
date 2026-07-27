@@ -1,0 +1,7 @@
+[
+  { "id": "bk_hv", "projectId": "BNE-006", "crewId": "cr_dan", "type": "training", "label": "HV switching training", "start": "2026-11-02", "end": "2026-11-06", "status": "scheduled", "blocksActivityId": "b6-ins" },
+  { "id": "bk_med_sam", "projectId": "PNG-012", "crewId": "cr_sam", "type": "medical", "label": "PNG work-fitness medical", "start": "2026-10-19", "end": "2026-10-23", "status": "booked", "blocksActivityId": "p12-mob" },
+  { "id": "bk_med_alex", "projectId": "PNG-012", "crewId": "cr_alex", "type": "medical", "label": "PNG work-fitness medical", "start": "2026-10-26", "end": "2026-10-30", "status": "booked", "blocksActivityId": "p12-mob" },
+  { "id": "bk_trv_sam", "projectId": "PNG-012", "crewId": "cr_sam", "type": "travel", "label": "Flights POM→Ramu + camp", "start": "2026-11-16", "end": "2026-12-11", "status": "todo", "blocksActivityId": "p12-mob" },
+  { "id": "bk_trv_alex", "projectId": "PNG-012", "crewId": "cr_alex", "type": "travel", "label": "Flights POM→Ramu + camp", "start": "2026-11-16", "end": "2026-12-11", "status": "todo", "blocksActivityId": "p12-mob" }
+]

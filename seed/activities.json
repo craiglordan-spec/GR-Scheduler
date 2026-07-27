@@ -1,0 +1,16 @@
+[
+  { "id": "b6-des", "projectId": "BNE-006", "name": "Design & specification", "category": "exec", "start": "2026-07-15", "end": "2026-08-28", "percentComplete": 0.7, "deps": [] },
+  { "id": "b6-ins", "projectId": "BNE-006", "name": "Site install & secondary wiring", "category": "exec", "start": "2026-11-23", "end": "2026-12-18", "percentComplete": 0, "deps": ["b6-des"] },
+  { "id": "b6-com", "projectId": "BNE-006", "name": "Commissioning & testing", "category": "exec", "start": "2027-01-06", "end": "2027-01-22", "percentComplete": 0, "deps": ["b6-ins"] },
+  { "id": "b6-pc", "projectId": "BNE-006", "name": "Practical completion", "category": "milestone", "start": "2027-01-23", "end": "2027-01-23", "percentComplete": 0, "deps": ["b6-com"] },
+
+  { "id": "p12-des", "projectId": "PNG-012", "name": "Detailed design", "category": "exec", "start": "2026-07-01", "end": "2026-09-11", "percentComplete": 0.8, "deps": [] },
+  { "id": "p12-mob", "projectId": "PNG-012", "name": "Mobilisation to site", "category": "exec", "start": "2026-12-14", "end": "2026-12-18", "percentComplete": 0, "deps": ["p12-des"] },
+  { "id": "p12-ins", "projectId": "PNG-012", "name": "Install & network integration", "category": "exec", "start": "2027-01-12", "end": "2027-02-20", "percentComplete": 0, "deps": ["p12-mob"] },
+  { "id": "p12-liv", "projectId": "PNG-012", "name": "Link live", "category": "milestone", "start": "2027-02-23", "end": "2027-02-23", "percentComplete": 0, "deps": ["p12-ins"] },
+
+  { "id": "b8-sur", "projectId": "BNE-008", "name": "Field RF survey (Park Rd–Ferny Grove)", "category": "exec", "start": "2026-08-03", "end": "2026-08-21", "percentComplete": 1, "deps": [] },
+  { "id": "b8-ana", "projectId": "BNE-008", "name": "Analysis & propagation modelling", "category": "exec", "start": "2026-08-24", "end": "2026-09-11", "percentComplete": 0.5, "deps": ["b8-sur"] },
+  { "id": "b8-rep", "projectId": "BNE-008", "name": "Report & recommendations", "category": "exec", "start": "2026-09-14", "end": "2026-09-25", "percentComplete": 0, "deps": ["b8-ana"] },
+  { "id": "b8-del", "projectId": "BNE-008", "name": "Report delivered", "category": "milestone", "start": "2026-09-25", "end": "2026-09-25", "percentComplete": 0, "deps": ["b8-rep"] }
+]

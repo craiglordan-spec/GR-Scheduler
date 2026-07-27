@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>GR Project Control · Scheduler</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&display=swap');
+  :root{
+    --bg:#F7F8FA;--surface:#FFF;--surface2:#F1F3F7;--border:#E2E6EE;
+    --text:#1A1D26;--text2:#4B5162;--text3:#8B90A0;
+    --exec:#1D4ED8;--equip:#B45309;--people:#7C3AED;--ms:#0E9488;--crit:#DC2626;
+    --draft:#6B7280;--submitted:#B45309;--approved:#1D4ED8;--paid:#15803D;--overdue:#DC2626;
+    --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.4}
+  .serif{font-family:'DM Serif Display',Georgia,serif}
+  .app{max-width:1440px;margin:0 auto;padding:18px}
+  header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+  .brand{font-family:'DM Serif Display',serif;font-size:24px}
+  .brand small{display:block;font-family:'DM Sans',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);margin-top:1px}
+  .src-chip{display:inline-flex;align-items:center;gap:7px;border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:600}
+  .src-live{background:#ECFEFF;border:1px solid #A5F3FC;color:#0E7490}
+  .src-sample{background:#FEF3C7;border:1px solid #FDE68A;color:#92400E}
+  .src-chip .dot{width:8px;height:8px;border-radius:50%}
+  .btn{font-family:inherit;font-size:12px;font-weight:600;border:1px solid var(--border);background:#fff;color:var(--text2);border-radius:7px;padding:6px 12px;cursor:pointer;transition:.12s}
+  .btn:hover{border-color:#C7CDDA;color:var(--text)}
+  .btn.on{background:var(--text);color:#fff;border-color:var(--text)}
+  .btn.primary{background:var(--exec);color:#fff;border-color:var(--exec)}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.sm{padding:3px 9px;font-size:11px}
+  .btn.danger{color:#DC2626;border-color:#FBD5D5}
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:11px;margin-bottom:16px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;box-shadow:var(--shadow)}
+  .kpi .lbl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+  .kpi .val{font-size:20px;font-weight:700;margin-top:4px}
+  .kpi .sub{font-size:10.5px;color:var(--text3);margin-top:2px}
+  .kpi.alert .val{color:var(--overdue)}
+  .layout{display:grid;grid-template-columns:1fr 330px;gap:15px;align-items:start}
+  @media(max-width:1100px){.layout{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(3,1fr)}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .card-hd{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--border);background:var(--surface2);flex-wrap:wrap}
+  .card-hd h2{font-size:14px;font-weight:700}
+  .controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 10px;border-radius:7px;border:1px solid var(--border);cursor:pointer;user-select:none;background:#fff}
+  .toggle .sw{width:9px;height:9px;border-radius:2px}
+  .toggle.off{opacity:.4}
+  /* Gantt */
+  .gantt{display:flex;position:relative;height:500px}
+  .lpane{width:262px;flex:0 0 262px;border-right:1px solid var(--border);overflow:hidden;background:var(--surface)}
+  .lhead{height:56px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);background:var(--surface2)}
+  .lrows{overflow:hidden}
+  .lrow{height:34px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid #F0F2F6;font-size:12.5px;white-space:nowrap;overflow:hidden;cursor:pointer}
+  .lrow:hover{background:var(--surface2)}
+  .lrow.grp{font-weight:700;background:#FAFBFD}
+  .lrow.grp .pid{font-size:10px;color:var(--text3);font-weight:700;margin-right:6px}
+  .lrow .catdot{width:7px;height:7px;border-radius:2px;margin-right:8px;flex:0 0 auto}
+  .lrow .tname{overflow:hidden;text-overflow:ellipsis}
+  .lrow.sel{background:#EFF4FF}
+  .rpane{flex:1;overflow:auto;position:relative}
+  .rcanvas{position:relative}
+  .rhead{position:sticky;top:0;height:56px;z-index:6;background:var(--surface)}
+  .month{position:absolute;top:0;height:30px;border-left:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text2);padding:7px 0 0 7px;overflow:hidden;background:var(--surface2)}
+  .wk{position:absolute;top:30px;height:26px;border-left:1px solid #EEF0F5;font-size:9px;color:var(--text3);padding:8px 0 0 4px;overflow:hidden}
+  .rowline{position:absolute;left:0;height:34px;border-bottom:1px solid #F0F2F6}
+  .rowline.grp{background:#FAFBFD}
+  .bar{position:absolute;height:20px;border-radius:5px;display:flex;align-items:center;padding:0 7px;font-size:10.5px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .bar:hover{filter:brightness(1.06);outline:2px solid rgba(0,0,0,.12)}
+  .bar.crit{outline:2px solid var(--crit);outline-offset:1px}
+  .bar .prog{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.28);border-radius:5px 0 0 5px}
+  .ms{position:absolute;width:15px;height:15px;transform:rotate(45deg);border-radius:3px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .mslabel{position:absolute;font-size:10px;font-weight:700;white-space:nowrap}
+  .invmark{position:absolute;width:11px;height:11px;border-radius:50%;border:2px solid #fff;cursor:pointer;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+  .today{position:absolute;top:56px;width:2px;background:var(--crit);z-index:5;opacity:.7}
+  .today .tlab{position:absolute;top:-2px;left:3px;font-size:9px;font-weight:700;color:var(--crit);background:#fff;padding:0 3px;border-radius:3px;white-space:nowrap}
+  svg.dep{position:absolute;top:56px;left:0;pointer-events:none;z-index:4;overflow:visible}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);padding:9px 15px;border-top:1px solid var(--border);background:var(--surface2)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend .sw{width:11px;height:11px;border-radius:3px}
+  .legend .sw.dia{transform:rotate(45deg);border-radius:2px}
+  /* side */
+  .side .card{margin-bottom:15px}
+  .p{padding:14px 15px}
+  .pick{font-size:12px;color:var(--text3);text-align:center;padding:28px 14px}
+  .proj-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .proj-head .nm{font-size:15px;font-weight:700}
+  .proj-head .pid{font-size:11px;font-weight:700;color:var(--text3)}
+  .cval{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid #F0F2F6}
+  .cval:last-child{border-bottom:none}
+  .cval .k{color:var(--text2)}.cval .v{font-weight:700}
+  .sect{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin:14px 0 8px}
+  .pipe{display:flex;gap:4px;margin-bottom:9px}
+  .pipe .st{flex:1;text-align:center;border-radius:6px;padding:6px 2px}
+  .pipe .st .n{font-size:15px;font-weight:700}.pipe .st .l{font-size:8.5px;font-weight:700;text-transform:uppercase;margin-top:1px}
+  .bar2{height:9px;border-radius:5px;background:var(--surface2);overflow:hidden;display:flex;margin:3px 0 10px}
+  .bar2 span{height:100%}
+  .inv,.eq{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;padding:5px 0;border-bottom:1px solid #F0F2F6}
+  .inv:last-child,.eq:last-child{border-bottom:none}
+  .badge{display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:4px}
+  .chk{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0}
+  .chk .ic{width:16px;height:16px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff}
+  .chk .meta{margin-left:auto;font-size:10.5px;color:var(--text3);white-space:nowrap}
+  .eq .meta{margin-left:auto;text-align:right;font-size:10.5px;color:var(--text3)}
+  #tip{position:fixed;z-index:60;background:#1A1D26;color:#fff;font-size:11.5px;padding:8px 11px;border-radius:7px;pointer-events:none;opacity:0;transition:opacity .1s;max-width:250px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  #tip .r{color:#C7CDDA}
+  /* drawer + modal */
+  .drawer{margin-top:15px}
+  .tabs{display:flex;gap:6px;padding:12px 15px;border-bottom:1px solid var(--border);background:var(--surface2)}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);padding:9px 12px;border-bottom:1px solid var(--border)}
+  td{padding:8px 12px;font-size:12.5px;border-bottom:1px solid #F0F2F6}
+  .overlay{position:fixed;inset:0;background:rgba(20,24,34,.45);display:flex;align-items:center;justify-content:center;z-index:70;padding:20px}
+  .modal{background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:100%;max-width:520px;max-height:90vh;overflow:auto;padding:22px}
+  .modal h3{font-size:17px;margin-bottom:14px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);margin-bottom:5px}
+  .field input,.field select,.field textarea{width:100%;font-family:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:#fff}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  /* login */
+  #login{position:fixed;inset:0;background:linear-gradient(135deg,#EEF2FB,#F7F8FA);display:flex;align-items:center;justify-content:center;z-index:100}
+  #login .box{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.15);padding:34px;width:360px}
+  #login .brand{font-size:26px;margin-bottom:2px}
+  #login .err{color:#DC2626;font-size:12px;margin-top:8px;min-height:16px}
+  .hide{display:none!important}
+  footer{margin-top:16px;font-size:11px;color:var(--text3);text-align:center;line-height:1.7}
+</style>
+</head>
+<body>
+<div id="login">
+  <div class="box">
+    <div class="brand serif">GR Project Control</div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);margin-bottom:20px">Scheduler &amp; Timeline</div>
+    <div class="field"><label>Username</label><input id="lg-user" autocomplete="username"/></div>
+    <div class="field"><label>Password</label><input id="lg-pass" type="password" autocomplete="current-password"/></div>
+    <button class="btn primary" style="width:100%;padding:10px" onclick="doLogin()">Sign in</button>
+    <div class="err" id="lg-err"></div>
+  </div>
+</div>
+
+<div class="app hide" id="main">
+  <header>
+    <div class="brand serif">GR Project Control <small>Scheduler &amp; Timeline</small></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <span class="src-chip" id="srcChip"></span>
+      <span id="whoami" style="font-size:12px;color:var(--text2)"></span>
+      <button class="btn" onclick="logout()">Sign out</button>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="layout">
+    <div class="card">
+      <div class="card-hd">
+        <h2>Programme timeline</h2>
+        <div class="controls">
+          <span class="toggle" data-cat="exec"><span class="sw" style="background:var(--exec)"></span>Execution</span>
+          <span class="toggle" data-cat="equip"><span class="sw" style="background:var(--equip)"></span>Equipment</span>
+          <span class="toggle" data-cat="people"><span class="sw" style="background:var(--people)"></span>People</span>
+          <span class="toggle" data-cat="inv"><span class="sw" style="background:var(--paid)"></span>Invoices</span>
+          <span style="width:6px"></span>
+          <button class="btn" data-zoom="0.55">Fit</button>
+          <button class="btn on" data-zoom="1">Month</button>
+          <button class="btn" data-zoom="2.1">Week</button>
+        </div>
+      </div>
+      <div class="gantt">
+        <div class="lpane"><div class="lhead">Project / Activity</div><div class="lrows" id="lrows"></div></div>
+        <div class="rpane" id="rpane"><div class="rcanvas" id="rcanvas">
+          <div class="rhead" id="rhead"></div>
+          <svg class="dep" id="dep"></svg>
+          <div id="bars"></div>
+          <div class="today" id="todayLine"><span class="tlab" id="todayLab"></span></div>
+        </div></div>
+      </div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--exec)"></span>Execution</span>
+        <span><span class="sw" style="background:var(--equip)"></span>Equipment lead time</span>
+        <span><span class="sw" style="background:var(--people)"></span>Training / medical / travel</span>
+        <span><span class="sw dia" style="background:var(--ms)"></span>Milestone</span>
+        <span><span class="sw" style="background:var(--crit);border-radius:50%"></span>Critical path</span>
+      </div>
+    </div>
+
+    <div class="side"><div class="card"><div class="p" id="detail"><div class="pick">Select a project to view invoice status, equipment ETAs and crew readiness.</div></div></div></div>
+  </div>
+
+  <div class="card drawer">
+    <div class="card-hd">
+      <div class="tabs" style="padding:0;background:none;border:none">
+        <button class="btn on" data-tab="activities" onclick="setTab('activities')">Activities</button>
+        <button class="btn" data-tab="equipment" onclick="setTab('equipment')">Equipment</button>
+        <button class="btn" data-tab="bookings" onclick="setTab('bookings')">Bookings</button>
+        <button class="btn" data-tab="crew" onclick="setTab('crew')">Crew</button>
+      </div>
+      <div class="controls" id="drawerActions"></div>
+    </div>
+    <div id="drawerBody" style="max-height:340px;overflow:auto"></div>
+  </div>
+
+  <footer>Prototype build · reads projects &amp; invoices from InvoiceDesk (server-to-server); scheduling data stored here.<br/>Gravel Road Consulting · Brisbane QLD</footer>
+</div>
+
+<div id="tip"></div>
+<div id="modalRoot"></div>
+
+<script>
+// ─── State ─────────────────────────────────────────────────────────────────
+const DAY=86400000, ROW_H=34, HEAD_H=56;
+const CATCOL={exec:'#1D4ED8',equip:'#B45309',people:'#7C3AED',ms:'#0E9488'};
+const STCFG={Draft:{c:'#6B7280',bg:'#F3F4F6'},Submitted:{c:'#92400E',bg:'#FFF7ED'},Approved:{c:'#1D4ED8',bg:'#EFF6FF'},Paid:{c:'#15803D',bg:'#F0FDF4'},Overdue:{c:'#DC2626',bg:'#FEF2F2'}};
+let TOKEN=localStorage.getItem('gr_token')||'', ME=null;
+let projects=[],ar=[],ap=[],po=[],activities=[],equipment=[],bookings=[],crew=[];
+let dayW=3.05; const ZOOM_BASE=3.05;
+const shown={exec:true,equip:true,people:true,inv:true};
+let selected=null, tab='activities';
+let START=new Date(2026,6,1), END=new Date(2027,2,31);
+const TODAY=new Date();
+
+// ─── API ──────────────────────────────────────────────────────────────────
+async function api(path,opts={}){
+  const r=await fetch(path,{...opts,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,...(opts.headers||{})}});
+  if(r.status===401){logout();throw new Error('unauth');}
+  if(!r.ok){let m='Request failed';try{m=(await r.json()).error||m;}catch{}throw new Error(m);}
+  return r.status===204?null:r.json();
+}
+const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const canWrite=()=>ME&&(ME.role==='admin'||ME.role==='scheduler');
+
+// ─── Login ──────────────────────────────────────────────────────────────────
+async function doLogin(){
+  const username=document.getElementById('lg-user').value.trim();
+  const password=document.getElementById('lg-pass').value;
+  try{
+    const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    if(!r.ok){document.getElementById('lg-err').textContent=(await r.json()).error||'Login failed';return;}
+    const d=await r.json(); TOKEN=d.token; localStorage.setItem('gr_token',TOKEN); await boot();
+  }catch(e){document.getElementById('lg-err').textContent='Could not reach server';}
+}
+document.getElementById('lg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+function logout(){TOKEN='';localStorage.removeItem('gr_token');document.getElementById('main').classList.add('hide');document.getElementById('login').classList.remove('hide');}
+
+async function boot(){
+  try{ME=await api('/api/me');}catch{logout();return;}
+  document.getElementById('login').classList.add('hide');
+  document.getElementById('main').classList.remove('hide');
+  document.getElementById('whoami').textContent=`${ME.username} · ${ME.role}`;
+  const chip=document.getElementById('srcChip');
+  chip.className='src-chip '+(ME.invoicedesk?'src-live':'src-sample');
+  chip.innerHTML=`<span class="dot" style="background:${ME.invoicedesk?'#0891B2':'#D97706'}"></span>${ME.invoicedesk?'Linked to InvoiceDesk':'Sample data (InvoiceDesk not linked)'}`;
+  await loadAll(); computeWindow(); render(); renderDrawer();
+  if(projects[0])showDetail(projects[0].id);
+}
+async function loadAll(){
+  const [p,a1,a2,a3,act,eq,bk,cr]=await Promise.all([
+    api('/api/invoicedesk/projects'),api('/api/invoicedesk/ar'),api('/api/invoicedesk/ap'),api('/api/invoicedesk/po'),
+    api('/api/activities'),api('/api/equipment'),api('/api/bookings'),api('/api/crew')
+  ]);
+  projects=p.data; ar=a1.data; ap=a2.data; po=a3.data; activities=act; equipment=eq; bookings=bk; crew=cr;
+}
+
+// ─── Timeline window auto-fit ─────────────────────────────────────────────────
+function computeWindow(){
+  const ds=[]; const push=x=>{if(x)ds.push(new Date(x));};
+  activities.forEach(a=>{push(a.start);push(a.end);});
+  equipment.forEach(e=>{push(e.orderDate);push(e.eta);});
+  bookings.forEach(b=>{push(b.start);push(b.end);});
+  if(!ds.length){START=new Date(2026,6,1);END=new Date(2027,2,31);return;}
+  let lo=new Date(Math.min(...ds)),hi=new Date(Math.max(...ds));
+  lo.setDate(1); hi=new Date(hi.getFullYear(),hi.getMonth()+1,0);
+  START=lo; END=hi;
+}
+const x=dt=>(dt-START)/DAY*dayW;
+const d=s=>{const t=new Date(s);return isNaN(t)?null:t;};
+const totalDays=()=>(END-START)/DAY;
+const fmt=n=>'$'+Math.round(n||0).toLocaleString('en-AU');
+const fmtd=dt=>dt?dt.toLocaleDateString('en-AU',{day:'numeric',month:'short'}):'—';
+const arEx=inv=>(inv.lines||[]).reduce((s,l)=>s+(Number(l.qty)||0)*(Number(l.rate)||0),0);
+
+// ─── Node + dependency model ──────────────────────────────────────────────────
+function nodesFor(pj){
+  const ns=[];
+  activities.filter(a=>a.projectId===pj).forEach(a=>ns.push({
+    kind:a.category==='milestone'?'milestone':'activity',id:a.id,pj,name:a.name,
+    cat:a.category==='milestone'?'ms':(a.category||'exec'),start:d(a.start),end:d(a.end||a.start),
+    prog:a.percentComplete||0,deps:a.deps||[]}));
+  equipment.filter(e=>e.projectId===pj).forEach(e=>ns.push({
+    kind:'equipment',id:e.id,pj,name:e.name,cat:'equip',start:d(e.orderDate),end:d(e.eta||e.orderDate),
+    blocks:e.blocksActivityId,supplier:e.supplier,status:e.status,crit:false}));
+  bookings.filter(b=>b.projectId===pj).forEach(b=>{const c=crew.find(c=>c.id===b.crewId);ns.push({
+    kind:'booking',id:b.id,pj,name:`${b.label||b.type} — ${c?c.name:''}`,cat:'people',start:d(b.start),end:d(b.end||b.start),
+    blocks:b.blocksActivityId,bstatus:b.status});});
+  return ns;
+}
+// edges: {from,to}. from finishes -> to starts. Sources: activity.deps, equipment/booking.blocks
+function edgesFor(nodes){
+  const byId={}; nodes.forEach(n=>byId[n.id]=n);
+  const es=[];
+  nodes.forEach(n=>{
+    (n.deps||[]).forEach(dep=>{if(byId[dep])es.push({from:dep,to:n.id});});
+    if(n.blocks&&byId[n.blocks])es.push({from:n.id,to:n.blocks});
+  });
+  return {es,byId};
+}
+// critical path per project: walk back from latest-finishing node choosing latest-finishing predecessor
+function markCritical(nodes){
+  const {es,byId}=edgesFor(nodes);
+  const preds={}; es.forEach(e=>{(preds[e.to]=preds[e.to]||[]).push(e.from);});
+  nodes.forEach(n=>n.crit=false);
+  if(!nodes.length)return new Set();
+  let term=nodes.reduce((a,b)=>(b.end&&(!a.end||b.end>a.end))?b:a);
+  const critEdges=new Set(); let cur=term.id, guard=0;
+  while(cur&&guard++<100){
+    byId[cur].crit=true;
+    const ps=(preds[cur]||[]).map(id=>byId[id]).filter(Boolean);
+    if(!ps.length)break;
+    const best=ps.reduce((a,b)=>(b.end&&(!a.end||b.end>a.end))?b:a);
+    critEdges.add(best.id+'>'+cur); cur=best.id;
+  }
+  return critEdges;
+}
+
+// ─── Render Gantt ─────────────────────────────────────────────────────────────
+function buildRows(){
+  const rows=[]; const allEdges=[]; const critEdges=new Set();
+  projects.forEach(p=>{
+    rows.push({grp:true,pj:p.id,p});
+    const ns=nodesFor(p.id);
+    const ce=markCritical(ns);
+    ce.forEach(x=>critEdges.add(x));
+    const {es}=edgesFor(ns);
+    es.forEach(e=>allEdges.push(e));
+    // order: activities/milestones by start, then equipment, then bookings
+    const acts=ns.filter(n=>n.kind==='activity'||n.kind==='milestone').sort((a,b)=>(a.start||0)-(b.start||0));
+    const eqs=ns.filter(n=>n.kind==='equipment').sort((a,b)=>(a.start||0)-(b.start||0));
+    const bks=ns.filter(n=>n.kind==='booking').sort((a,b)=>(a.start||0)-(b.start||0));
+    [...acts,...eqs,...bks].forEach(n=>rows.push({grp:false,n}));
+  });
+  return {rows,allEdges,critEdges};
+}
+let LAST={rows:[],allEdges:[],critEdges:new Set()};
+
+function render(){
+  const totalW=totalDays()*dayW;
+  const {rows,allEdges,critEdges}=buildRows(); LAST={rows,allEdges,critEdges};
+  const bodyH=rows.length*ROW_H;
+  renderKPIs();
+
+  document.getElementById('lrows').innerHTML=rows.map(r=>{
+    if(r.grp)return `<div class="lrow grp ${selected===r.pj?'sel':''}" data-pj="${r.pj}"><span class="pid">${r.pj}</span><span class="tname">${esc(r.p.name)}</span></div>`;
+    const n=r.n; const col=CATCOL[n.cat]||CATCOL.exec;
+    return `<div class="lrow ${selected===n.pj?'sel':''}" data-pj="${n.pj}"><span class="catdot" style="background:${col}"></span><span class="tname">${esc(n.name)}</span></div>`;
+  }).join('');
+
+  const rhead=document.getElementById('rhead'); rhead.style.width=totalW+'px'; rhead.innerHTML='';
+  let cur=new Date(START);
+  while(cur<END){
+    const mEnd=new Date(cur.getFullYear(),cur.getMonth()+1,1);
+    const left=x(cur),w=x(mEnd>END?END:mEnd)-left;
+    const md=document.createElement('div');md.className='month';md.style.left=left+'px';md.style.width=w+'px';
+    md.textContent=cur.toLocaleDateString('en-AU',{month:'short',year:'2-digit'});rhead.appendChild(md);
+    cur=mEnd;
+  }
+  if(dayW>1.5){let wk=new Date(START);wk.setDate(wk.getDate()-((wk.getDay()+6)%7));
+    while(wk<END){const wd=document.createElement('div');wd.className='wk';wd.style.left=x(wk)+'px';wd.style.width=(7*dayW)+'px';wd.textContent=wk.getDate();rhead.appendChild(wd);wk=new Date(wk.getTime()+7*DAY);}}
+
+  document.getElementById('rcanvas').style.width=totalW+'px';
+  document.getElementById('rcanvas').style.height=(HEAD_H+bodyH)+'px';
+
+  const bars=document.getElementById('bars');bars.innerHTML='';
+  rows.forEach((r,i)=>{const rl=document.createElement('div');rl.className='rowline'+(r.grp?' grp':'');rl.style.top=(HEAD_H+i*ROW_H)+'px';rl.style.width=totalW+'px';bars.appendChild(rl);});
+
+  rows.forEach((r,i)=>{
+    if(r.grp){ // invoice markers on project row
+      if(shown.inv){const top=HEAD_H+i*ROW_H;
+        ar.filter(v=>v.projectId===r.pj&&v.issued).forEach(v=>{const el=document.createElement('div');el.className='invmark';el.style.left=(x(d(v.issued))-5)+'px';el.style.top=(top+11)+'px';el.style.background=(STCFG[v.status]||STCFG.Draft).c;el.dataset.tip=`<b>Invoice ${esc(v.id)}</b><br><span class="r">${fmt(arEx(v))} · ${esc(v.status)}</span><br><span class="r">Issued ${fmtd(d(v.issued))}</span>`;bars.appendChild(el);});}
+      return;
+    }
+    const n=r.n; const top=HEAD_H+i*ROW_H; const catKey=n.cat==='ms'?'exec':n.cat;
+    if(!shown[catKey])return;
+    if(n.kind==='milestone'){
+      if(!n.start)return;
+      const el=document.createElement('div');el.className='ms';el.style.background=n.crit?'#DC2626':CATCOL.ms;el.style.left=(x(n.start)-7)+'px';el.style.top=(top+9)+'px';
+      el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)}</span>`;el.dataset.pj=n.pj;bars.appendChild(el);
+      const lab=document.createElement('div');lab.className='mslabel';lab.style.color=n.crit?'#DC2626':CATCOL.ms;lab.style.left=(x(n.start)+12)+'px';lab.style.top=(top+10)+'px';lab.textContent=n.name;bars.appendChild(lab);
+      return;
+    }
+    if(!n.start||!n.end)return;
+    const left=x(n.start),w=Math.max((n.end-n.start)/DAY*dayW+dayW,6);
+    const el=document.createElement('div');el.className='bar'+(n.crit?' crit':'');el.style.left=left+'px';el.style.top=(top+7)+'px';el.style.width=w+'px';el.style.background=CATCOL[n.cat];
+    if(n.prog>0){const pg=document.createElement('div');pg.className='prog';pg.style.width=(n.prog*100)+'%';el.appendChild(pg);}
+    const sp=document.createElement('span');sp.style.position='relative';sp.textContent=n.name;el.appendChild(sp);
+    const wks=Math.round((n.end-n.start)/DAY/7);
+    let extra='';
+    if(n.kind==='equipment')extra=`<br><span class="r">${esc(n.supplier||'')} · ${esc(n.status||'')}</span><br><span class="r">ETA ${fmtd(n.end)}</span>`;
+    if(n.kind==='booking')extra=`<br><span class="r">status: ${esc(n.bstatus||'')}</span>`;
+    el.dataset.tip=`<b>${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} → ${fmtd(n.end)} · ${wks} wk${wks!==1?'s':''}</span>${extra}${n.crit?'<br><span style="color:#FCA5A5">● critical path</span>':''}`;
+    el.dataset.pj=n.pj;bars.appendChild(el);
+  });
+
+  drawDeps(rows,allEdges,critEdges);
+  const tl=document.getElementById('todayLine');
+  if(TODAY>=START&&TODAY<=END){tl.style.display='block';tl.style.left=x(TODAY)+'px';tl.style.height=bodyH+'px';document.getElementById('todayLab').textContent='Today';}
+  else tl.style.display='none';
+  bindTips();
+}
+function drawDeps(rows,edges,critEdges){
+  const svg=document.getElementById('dep');const totalW=totalDays()*dayW,bodyH=rows.length*ROW_H;
+  svg.setAttribute('width',totalW);svg.setAttribute('height',bodyH);svg.style.width=totalW+'px';svg.style.height=bodyH+'px';
+  const idx={}; rows.forEach((r,i)=>{if(!r.grp)idx[r.n.id]=i;});
+  const nodeById={}; rows.forEach(r=>{if(!r.grp)nodeById[r.n.id]=r.n;});
+  let p=`<defs><marker id="ah" markerWidth="7" markerHeight="7" refX="5.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#94A0B8"/></marker><marker id="ahc" markerWidth="7" markerHeight="7" refX="5.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#DC2626"/></marker></defs>`;
+  edges.forEach(e=>{
+    const si=idx[e.from],ti=idx[e.to];if(si==null||ti==null)return;
+    const s=nodeById[e.from],t=nodeById[e.to];if(!s.start||!t.start)return;
+    const catS=s.cat==='ms'?'exec':s.cat,catT=t.cat==='ms'?'exec':t.cat;if(!shown[catS]||!shown[catT])return;
+    const sEnd=(s.kind==='milestone')?x(s.start)+7:x(s.end)+dayW;
+    const sY=si*ROW_H+ROW_H/2,tX=x(t.start),tY=ti*ROW_H+ROW_H/2;
+    const crit=critEdges.has(e.from+'>'+e.to);
+    const midX=Math.max(sEnd+10,tX-12);
+    p+=`<path d="M${sEnd},${sY} H${midX} V${tY} H${tX-2}" fill="none" stroke="${crit?'#DC2626':'#94A0B8'}" stroke-width="${crit?1.6:1.2}" stroke-dasharray="${crit?'0':'4 3'}" marker-end="url(#${crit?'ahc':'ah'})" opacity=".85"/>`;
+  });
+  svg.innerHTML=p;
+}
+
+// ─── KPIs ─────────────────────────────────────────────────────────────────────
+function renderKPIs(){
+  const totVal=projects.reduce((s,p)=>s+(Number(p.value)||0),0);
+  const issued=ar.filter(i=>i.status!=='Draft'),invAmt=issued.reduce((s,i)=>s+arEx(i),0);
+  const paid=ar.filter(i=>i.status==='Paid').reduce((s,i)=>s+arEx(i),0);
+  const overdue=ar.filter(i=>i.status==='Overdue');
+  const eqOrder=equipment.filter(e=>e.status!=='delivered').length;
+  const todo=bookings.filter(b=>b.status==='todo').length;
+  document.getElementById('kpis').innerHTML=[
+    {l:'Active projects',v:projects.filter(p=>p.status==='Active').length,s:projects.length+' total'},
+    {l:'Contract value',v:fmt(totVal),s:'AUD'},
+    {l:'Invoiced',v:fmt(invAmt),s:totVal?Math.round(invAmt/totVal*100)+'% of value':''},
+    {l:'Paid',v:fmt(paid),s:fmt(invAmt-paid)+' outstanding'},
+    {l:'Overdue',v:overdue.length?fmt(overdue.reduce((s,i)=>s+arEx(i),0)):'—',s:overdue.length+' invoice'+(overdue.length!==1?'s':''),alert:overdue.length>0},
+    {l:'Bookings to action',v:todo||'—',s:eqOrder+' equip. on order',alert:todo>0}
+  ].map(k=>`<div class="kpi ${k.alert?'alert':''}"><div class="lbl">${k.l}</div><div class="val">${k.v}</div><div class="sub">${k.s}</div></div>`).join('');
+}
+
+// ─── Side detail ────────────────────────────────────────────────────────────
+function showDetail(pj){
+  selected=pj; const p=projects.find(x=>x.id===pj); if(!p)return;
+  const invs=ar.filter(i=>i.projectId===pj);
+  const byst={};['Draft','Submitted','Approved','Paid','Overdue'].forEach(s=>byst[s]=invs.filter(i=>i.status===s));
+  const issued=invs.filter(i=>i.status!=='Draft').reduce((s,i)=>s+arEx(i),0);
+  const paid=byst.Paid.reduce((s,i)=>s+arEx(i),0);
+  const submApp=byst.Submitted.concat(byst.Approved,byst.Overdue).reduce((s,i)=>s+arEx(i),0);
+  const val=Number(p.value)||0,rem=Math.max(val-paid-submApp,0);
+  const seg=(v,c)=>v>0&&val?`<span style="width:${v/val*100}%;background:${c}"></span>`:'';
+  const pipe=['Draft','Submitted','Approved','Paid'].map(s=>{const c=STCFG[s];return `<div class="st" style="background:${c.bg}"><div class="n" style="color:${c.c}">${byst[s].length}</div><div class="l" style="color:${c.c}">${s}</div></div>`;}).join('');
+  const eqs=equipment.filter(e=>e.projectId===pj);
+  const bks=bookings.filter(b=>b.projectId===pj);
+  const bst={done:['#15803D','✓'],scheduled:['#1D4ED8','✓'],booked:['#15803D','✓'],todo:['#DC2626','!']};
+  document.getElementById('detail').innerHTML=`
+    <div class="proj-head"><div><div class="nm">${esc(p.name)}</div><div style="font-size:11.5px;color:var(--text2);margin-top:1px">${esc(p.client)}</div></div><div style="text-align:right"><div class="pid">${esc(p.id)}</div><span class="badge" style="color:#15803D;background:#F0FDF4;margin-top:4px">${esc(p.status)}</span></div></div>
+    <div style="margin-top:10px">
+      <div class="cval"><span class="k">Contract value</span><span class="v">${fmt(val)}</span></div>
+      <div class="cval"><span class="k">Invoiced</span><span class="v">${fmt(issued)} <span style="color:var(--text3);font-weight:400">(${val?Math.round(issued/val*100):0}%)</span></span></div>
+      <div class="cval"><span class="k">Paid</span><span class="v" style="color:var(--paid)">${fmt(paid)}</span></div>
+      <div class="cval"><span class="k">Outstanding</span><span class="v" style="color:${submApp?'#B45309':'var(--text3)'}">${fmt(issued-paid)}</span></div>
+    </div>
+    <div class="sect">Invoice status</div><div class="pipe">${pipe}</div>
+    <div class="bar2">${seg(paid,'#15803D')}${seg(submApp,'#B45309')}${seg(rem,'#E2E6EE')}</div>
+    ${invs.map(i=>`<div class="inv"><span>${esc(i.id)} <span style="color:var(--text3)">${i.issued?fmtd(d(i.issued)):'—'}</span></span><span style="display:flex;gap:8px;align-items:center"><b>${fmt(arEx(i))}</b><span class="badge" style="color:${(STCFG[i.status]||STCFG.Draft).c};background:${(STCFG[i.status]||STCFG.Draft).bg}">${esc(i.status)}</span></span></div>`).join('')||'<div style="font-size:11.5px;color:var(--text3)">No invoices yet</div>'}
+    ${eqs.length?`<div class="sect">Equipment supply</div>${eqs.map(e=>`<div class="eq"><span style="font-weight:600">${esc(e.name)}</span><span class="meta">${e.blocksActivityId?'':''}ETA ${fmtd(d(e.eta))}<br>${esc(e.status||'')}</span></div>`).join('')}`:''}
+    ${bks.length?`<div class="sect">Crew readiness</div>${bks.map(b=>{const m=bst[b.status]||['#6B7280','·'];const c=crew.find(c=>c.id===b.crewId);return `<div class="chk"><span class="ic" style="background:${m[0]}">${m[1]}</span><span>${esc(b.label||b.type)} <span style="color:var(--text3)">— ${esc(c?c.name:'')}</span></span><span class="meta">${b.start?fmtd(d(b.start)):''}</span></div>`;}).join('')}`:''}
+  `;
+  render();
+}
+
+// ─── Tooltips ─────────────────────────────────────────────────────────────────
+const tip=document.getElementById('tip');
+function bindTips(){
+  document.querySelectorAll('[data-tip]').forEach(el=>{
+    el.onmousemove=e=>{tip.innerHTML=el.dataset.tip;tip.style.opacity=1;tip.style.left=Math.min(e.clientX+14,innerWidth-260)+'px';tip.style.top=(e.clientY+14)+'px';};
+    el.onmouseleave=()=>tip.style.opacity=0;
+    if(el.dataset.pj)el.onclick=()=>showDetail(el.dataset.pj);
+  });
+}
+
+// ─── Data drawer (CRUD) ───────────────────────────────────────────────────────
+function setTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));renderDrawer();}
+function pjName(id){const p=projects.find(p=>p.id===id);return p?`${id}`:id||'—';}
+function crewName(id){const c=crew.find(c=>c.id===id);return c?c.name:'—';}
+function renderDrawer(){
+  const actions=document.getElementById('drawerActions');
+  const addLbl={activities:'Activity',bookings:'Booking',crew:'Crew member'}[tab]||'Item';
+  actions.innerHTML=canWrite()?(
+    tab==='equipment'?`<button class="btn sm" onclick="importPOs()">↓ Import from POs</button><button class="btn sm primary" onclick="openForm('equipment')">+ Equipment</button>`
+    :`<button class="btn sm primary" onclick="openForm('${tab}')">+ ${addLbl}</button>`
+  ):'';
+  const body=document.getElementById('drawerBody');
+  const acted=(id,type)=>canWrite()?`<td style="white-space:nowrap"><button class="btn sm" onclick="openForm('${type}','${id}')">Edit</button> <button class="btn sm danger" onclick="del('${type}','${id}')">✕</button></td>`:'<td></td>';
+  if(tab==='activities'){
+    body.innerHTML=table(['Project','Activity','Category','Start','End','%','Deps',''],activities.map(a=>`<tr><td>${esc(a.projectId)}</td><td>${esc(a.name)}</td><td>${esc(a.category)}</td><td>${esc(a.start)}</td><td>${esc(a.end)}</td><td>${Math.round((a.percentComplete||0)*100)}%</td><td style="color:var(--text3)">${esc((a.deps||[]).join(', '))}</td>${acted(a.id,'activities')}</tr>`).join(''));
+  }else if(tab==='equipment'){
+    body.innerHTML=table(['Project','Item','Supplier','Order','ETA','Status','Blocks','Src',''],equipment.map(e=>`<tr><td>${esc(e.projectId)}</td><td>${esc(e.name)}</td><td>${esc(e.supplier)}</td><td>${esc(e.orderDate)}</td><td>${esc(e.eta)}</td><td>${esc(e.status)}</td><td style="color:var(--text3)">${esc(e.blocksActivityId||'')}</td><td><span class="badge" style="background:var(--surface2);color:var(--text3)">${esc(e.source||'manual')}</span></td>${acted(e.id,'equipment')}</tr>`).join(''));
+  }else if(tab==='bookings'){
+    body.innerHTML=table(['Project','Type','Who','Detail','Start','End','Status','Blocks',''],bookings.map(b=>`<tr><td>${esc(b.projectId)}</td><td>${esc(b.type)}</td><td>${esc(crewName(b.crewId))}</td><td>${esc(b.label||'')}</td><td>${esc(b.start)}</td><td>${esc(b.end)}</td><td>${esc(b.status)}</td><td style="color:var(--text3)">${esc(b.blocksActivityId||'')}</td>${acted(b.id,'bookings')}</tr>`).join(''));
+  }else{
+    body.innerHTML=table(['Name','Role','Ticket expiry','Notes',''],crew.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.role)}</td><td>${esc(c.ticketExpiry||'')}</td><td>${esc(c.notes||'')}</td>${acted(c.id,'crew')}</tr>`).join(''));
+  }
+}
+function table(h,rows){return `<table><thead><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${h.length}" style="padding:24px;text-align:center;color:var(--text3)">Nothing yet</td></tr>`}</tbody></table>`;}
+
+// ─── Forms ──────────────────────────────────────────────────────────────────
+function projOpts(v){return projects.map(p=>`<option value="${p.id}" ${p.id===v?'selected':''}>${esc(p.id)} — ${esc(p.name)}</option>`).join('');}
+function actOpts(v,pj){return `<option value="">— none —</option>`+activities.filter(a=>!pj||a.projectId===pj).map(a=>`<option value="${a.id}" ${a.id===v?'selected':''}>${esc(a.name)}</option>`).join('');}
+function crewOpts(v){return crew.map(c=>`<option value="${c.id}" ${c.id===v?'selected':''}>${esc(c.name)}</option>`).join('');}
+function selOpts(arr,v){return arr.map(o=>`<option value="${o}" ${o===v?'selected':''}>${o}</option>`).join('');}
+function openForm(type,id){
+  const rec=id?({activities,equipment,bookings,crew}[type]).find(x=>x.id===id):{};
+  let fields='';
+  if(type==='activities')fields=`
+    <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
+    <div class="field"><label>Activity name</label><input id="f-name" value="${esc(rec.name)}"/></div>
+    <div class="grid2"><div class="field"><label>Category</label><select id="f-category">${selOpts(['exec','equipment','people','milestone'],rec.category||'exec')}</select></div><div class="field"><label>% complete</label><input id="f-percentComplete" type="number" min="0" max="100" value="${rec.percentComplete!=null?Math.round(rec.percentComplete*100):0}"/></div></div>
+    <div class="grid2"><div class="field"><label>Start</label><input id="f-start" type="date" value="${esc(rec.start)}"/></div><div class="field"><label>End</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div></div>
+    <div class="field"><label>Depends on (activity)</label><select id="f-deps">${actOpts((rec.deps||[])[0],rec.projectId)}</select></div>`;
+  if(type==='equipment')fields=`
+    <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
+    <div class="field"><label>Item</label><input id="f-name" value="${esc(rec.name)}"/></div>
+    <div class="grid2"><div class="field"><label>Supplier</label><input id="f-supplier" value="${esc(rec.supplier)}"/></div><div class="field"><label>Status</label><select id="f-status">${selOpts(['quote','ordered','in-transit','delivered'],rec.status||'ordered')}</select></div></div>
+    <div class="grid2"><div class="field"><label>Order date</label><input id="f-orderDate" type="date" value="${esc(rec.orderDate)}"/></div><div class="field"><label>ETA</label><input id="f-eta" type="date" value="${esc(rec.eta)}"/></div></div>
+    <div class="field"><label>Blocks activity (needs this to arrive first)</label><select id="f-blocksActivityId">${actOpts(rec.blocksActivityId,rec.projectId)}</select></div>`;
+  if(type==='bookings')fields=`
+    <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
+    <div class="grid2"><div class="field"><label>Type</label><select id="f-type">${selOpts(['training','medical','travel'],rec.type||'training')}</select></div><div class="field"><label>Person</label><select id="f-crewId">${crewOpts(rec.crewId)}</select></div></div>
+    <div class="field"><label>Detail</label><input id="f-label" value="${esc(rec.label)}" placeholder="e.g. HV switching / PNG medical / Flights"/></div>
+    <div class="grid2"><div class="field"><label>Start</label><input id="f-start" type="date" value="${esc(rec.start)}"/></div><div class="field"><label>End</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div></div>
+    <div class="grid2"><div class="field"><label>Status</label><select id="f-status">${selOpts(['todo','booked','scheduled','done'],rec.status||'todo')}</select></div><div class="field"><label>Blocks activity</label><select id="f-blocksActivityId">${actOpts(rec.blocksActivityId,rec.projectId)}</select></div></div>`;
+  if(type==='crew')fields=`
+    <div class="field"><label>Name</label><input id="f-name" value="${esc(rec.name)}"/></div>
+    <div class="field"><label>Role</label><input id="f-role" value="${esc(rec.role)}"/></div>
+    <div class="grid2"><div class="field"><label>Ticket expiry</label><input id="f-ticketExpiry" type="date" value="${esc(rec.ticketExpiry)}"/></div><div class="field"><label>Notes</label><input id="f-notes" value="${esc(rec.notes)}"/></div></div>`;
+  const singular={activities:'activity',equipment:'equipment item',bookings:'booking',crew:'crew member'}[type]||type;
+  document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeForm()"><div class="modal"><h3>${id?'Edit':'New'} ${singular}</h3>${fields}<div style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" onclick="saveForm('${type}','${id||''}')">Save</button></div></div></div>`;
+}
+function closeForm(){document.getElementById('modalRoot').innerHTML='';}
+const gv=id=>{const el=document.getElementById(id);return el?el.value:'';};
+async function saveForm(type,id){
+  let body={};
+  if(type==='activities')body={projectId:gv('f-projectId'),name:gv('f-name'),category:gv('f-category'),percentComplete:(Number(gv('f-percentComplete'))||0)/100,start:gv('f-start'),end:gv('f-end'),deps:gv('f-deps')?[gv('f-deps')]:[]};
+  if(type==='equipment')body={projectId:gv('f-projectId'),name:gv('f-name'),supplier:gv('f-supplier'),status:gv('f-status'),orderDate:gv('f-orderDate'),eta:gv('f-eta'),blocksActivityId:gv('f-blocksActivityId')||null,source:id?undefined:'manual'};
+  if(type==='bookings')body={projectId:gv('f-projectId'),type:gv('f-type'),crewId:gv('f-crewId'),label:gv('f-label'),start:gv('f-start'),end:gv('f-end'),status:gv('f-status'),blocksActivityId:gv('f-blocksActivityId')||null};
+  if(type==='crew')body={name:gv('f-name'),role:gv('f-role'),ticketExpiry:gv('f-ticketExpiry'),notes:gv('f-notes')};
+  try{
+    if(id)await api(`/api/${type}/${id}`,{method:'PUT',body:JSON.stringify(body)});
+    else await api(`/api/${type}`,{method:'POST',body:JSON.stringify(body)});
+    closeForm();await loadAll();computeWindow();renderDrawer();if(selected)showDetail(selected);else render();
+  }catch(e){alert('Save failed: '+e.message);}
+}
+async function del(type,id){
+  if(!confirm('Delete this item?'))return;
+  try{await api(`/api/${type}/${id}`,{method:'DELETE'});await loadAll();computeWindow();renderDrawer();if(selected)showDetail(selected);else render();}catch(e){alert('Delete failed: '+e.message);}
+}
+async function importPOs(){
+  try{const r=await api('/api/equipment/import-pos',{method:'POST'});await loadAll();computeWindow();renderDrawer();render();alert(`Imported ${r.added} equipment item(s) from InvoiceDesk POs.`);}catch(e){alert('Import failed: '+e.message);}
+}
+
+// ─── Events ─────────────────────────────────────────────────────────────────
+document.getElementById('lrows').addEventListener('click',e=>{const row=e.target.closest('[data-pj]');if(row)showDetail(row.dataset.pj);});
+document.getElementById('rpane').addEventListener('scroll',e=>{document.getElementById('lrows').style.transform=`translateY(${-e.target.scrollTop}px)`;});
+document.querySelectorAll('.toggle').forEach(t=>t.addEventListener('click',()=>{shown[t.dataset.cat]=!shown[t.dataset.cat];t.classList.toggle('off',!shown[t.dataset.cat]);render();}));
+document.querySelectorAll('[data-zoom]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-zoom]').forEach(z=>z.classList.remove('on'));b.classList.add('on');dayW=ZOOM_BASE*parseFloat(b.dataset.zoom);render();}));
+
+// boot if token present
+if(TOKEN)boot();
+</script>
+</body>
+</html>

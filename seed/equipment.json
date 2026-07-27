@@ -1,0 +1,6 @@
+[
+  { "id": "eq_relays", "projectId": "BNE-006", "name": "SEL-411L protection relays x6", "supplier": "Schweitzer (SEL)", "orderDate": "2026-08-01", "eta": "2026-11-20", "leadTimeWeeks": 16, "status": "ordered", "source": "po", "poId": "PO-1007", "blocksActivityId": "b6-ins" },
+  { "id": "eq_panels", "projectId": "BNE-006", "name": "Marshalling panels", "supplier": "NHP", "orderDate": "2026-08-15", "eta": "2026-10-24", "leadTimeWeeks": 10, "status": "in-transit", "source": "po", "poId": "PO-1008", "blocksActivityId": "b6-ins" },
+  { "id": "eq_radios", "projectId": "PNG-012", "name": "WTM 4200 radios + antennas", "supplier": "Aviat Networks", "orderDate": "2026-08-10", "eta": "2026-12-04", "leadTimeWeeks": 16, "status": "ordered", "source": "po", "poId": "PO-1011", "blocksActivityId": "p12-mob" },
+  { "id": "eq_fibre", "projectId": "PNG-012", "name": "Fibre splice + OTDR kit", "supplier": "AFL", "orderDate": "2026-09-01", "eta": "2026-10-15", "leadTimeWeeks": 6, "status": "delivered", "source": "po", "poId": "PO-1012", "blocksActivityId": "p12-ins" }
+]
