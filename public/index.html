@@ -220,7 +220,7 @@ const STCFG={Draft:{c:'#6B7280',bg:'#F3F4F6'},Submitted:{c:'#92400E',bg:'#FFF7ED
 let TOKEN=localStorage.getItem('gr_token')||'', ME=null;
 let projects=[],ar=[],ap=[],po=[],activities=[],equipment=[],bookings=[],crew=[];
 let idStatus={source:'',error:'',count:0};
-let SCOPE=[]; let lastProject=localStorage.getItem('gr_lastproj')||'';
+let SCOPE=[]; let lastProject=localStorage.getItem('gr_lastproj')||''; let editingId='';
 let dayW=3.05; const ZOOM_BASE=3.05;
 const shown={exec:true,equip:true,people:true,inv:true};
 let selected=null, tab='activities';
@@ -581,12 +581,26 @@ function projOpts(v,showAll){
 // Project field for entry forms: defaults to the open/last-used project; "show all" link reveals every project.
 function projField(rec){
   const def=rec.projectId||selected||lastProject||'';
-  return `<label class="field-label">Project <a href="#" onclick="event.preventDefault();const s=document.getElementById('f-projectId');s.innerHTML=projOpts(s.value,true);this.style.display='none'" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--exec);margin-left:6px">show all</a></label><select id="f-projectId">${projOpts(def,false)}</select>`;
+  return `<label class="field-label">Project <a href="#" onclick="event.preventDefault();const s=document.getElementById('f-projectId');s.innerHTML=projOpts(s.value,true);this.style.display='none'" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--exec);margin-left:6px">show all</a></label><select id="f-projectId" onchange="onProjChange()">${projOpts(def,false)}</select>`;
 }
 function actOpts(v,pj){return `<option value="">— none —</option>`+activities.filter(a=>!pj||a.projectId===pj).map(a=>`<option value="${a.id}" ${a.id===v?'selected':''}>${esc(a.name)}</option>`).join('');}
+// Predecessor options for an activity dependency: activities (excluding itself), equipment arrivals, and bookings — same project.
+function depOpts(v,pj){
+  const acts=activities.filter(a=>(!pj||a.projectId===pj)&&a.id!==editingId);
+  const eqs=equipment.filter(e=>!pj||e.projectId===pj);
+  const bks=bookings.filter(b=>!pj||b.projectId===pj);
+  let h=`<option value="">— none —</option>`;
+  if(acts.length)h+=`<optgroup label="Activities / milestones">${acts.map(a=>`<option value="${a.id}" ${a.id===v?'selected':''}>${esc(a.name)}</option>`).join('')}</optgroup>`;
+  if(eqs.length)h+=`<optgroup label="Equipment (arrival)">${eqs.map(e=>`<option value="${e.id}" ${e.id===v?'selected':''}>${esc(e.name)}${e.eta?` — ETA ${esc(e.eta)}`:''}</option>`).join('')}</optgroup>`;
+  if(bks.length)h+=`<optgroup label="Bookings">${bks.map(b=>`<option value="${b.id}" ${b.id===v?'selected':''}>${esc(b.label||b.type)}</option>`).join('')}</optgroup>`;
+  return h;
+}
+// Rebuild dependent pickers when the project changes on a form.
+function onProjChange(){const pj=gv('f-projectId');const dep=document.getElementById('f-deps');if(dep)dep.innerHTML=depOpts(dep.value,pj);const blk=document.getElementById('f-blocksActivityId');if(blk)blk.innerHTML=actOpts(blk.value,pj);}
 function crewOpts(v){return crew.map(c=>`<option value="${c.id}" ${c.id===v?'selected':''}>${esc(c.name)}</option>`).join('');}
 function selOpts(arr,v){return arr.map(o=>`<option value="${o}" ${o===v?'selected':''}>${o}</option>`).join('');}
 function openForm(type,id){
+  editingId=id||'';
   const rec=id?({activities,equipment,bookings,crew}[type]).find(x=>x.id===id):{};
   let fields='';
   if(type==='activities')fields=`
@@ -598,7 +612,7 @@ function openForm(type,id){
       <div class="field" id="wrap-end"><label>End date</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div>
       <div class="field" id="wrap-days" style="display:none"><label>Duration (days, incl.)</label><input id="f-days" type="number" min="1" value="${(rec.start&&rec.end)?(Math.round((new Date(rec.end)-new Date(rec.start))/86400000)+1):''}" placeholder="e.g. 10"/></div>
     </div>
-    <div class="field"><label>Depends on (activity)</label><select id="f-deps">${actOpts((rec.deps||[])[0],rec.projectId)}</select></div>`;
+    <div class="field"><label>Depends on (predecessor)</label><select id="f-deps">${depOpts((rec.deps||[])[0],rec.projectId||selected||lastProject||'')}</select></div>`;
   if(type==='equipment')fields=`
     <div class="field">${projField(rec)}</div>
     <div class="field"><label>Item</label><input id="f-name" value="${esc(rec.name)}"/></div>
