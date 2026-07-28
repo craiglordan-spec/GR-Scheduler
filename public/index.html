@@ -186,6 +186,7 @@
         <span><span class="sw" style="background:var(--people)"></span>Training / medical / travel</span>
         <span><span class="sw dia" style="background:var(--ms)"></span>Milestone (fill = % complete)</span>
         <span><span class="sw" style="background:var(--crit);border-radius:50%"></span>Critical path</span>
+        <span style="color:var(--text3)">· double-click a bar or milestone to edit</span>
       </div>
     </div>
 
@@ -421,7 +422,7 @@ function render(){
       // fill the diamond by % complete: hollow at 0, solid at 100, gradient between (mirrors activity progress)
       el.style.background=pct<=0?'#fff':pct>=100?col:`linear-gradient(to top, ${col} ${pct}%, #fff ${pct}%)`;
       const state=pct>=100?'achieved':pct>0?pct+'% complete':'not started';
-      el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} · ${state}</span>${n.notes?'<br><span class="r">📝 '+esc(n.notes)+'</span>':''}`;el.dataset.pj=n.pj;bars.appendChild(el);
+      el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} · ${state}</span>${n.notes?'<br><span class="r">📝 '+esc(n.notes)+'</span>':''}`;el.dataset.pj=n.pj;el.dataset.id=n.id;el.dataset.etype='activities';bars.appendChild(el);
       const lab=document.createElement('div');lab.className='mslabel';lab.style.color=col;lab.style.left=(x(n.start)+12)+'px';lab.style.top=(top+10)+'px';lab.textContent=n.name;bars.appendChild(lab);
       return;
     }
@@ -435,7 +436,7 @@ function render(){
     if(n.kind==='equipment')extra=`<br><span class="r">${esc(n.supplier||'')} · ${esc(n.status||'')}</span><br><span class="r">ETA ${fmtd(n.end)}</span>`;
     if(n.kind==='booking')extra=`<br><span class="r">status: ${esc(n.bstatus||'')}</span>`;
     el.dataset.tip=`<b>${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} → ${fmtd(n.end)} · ${wks} wk${wks!==1?'s':''}</span>${extra}${n.crit?'<br><span style="color:#FCA5A5">● critical path</span>':''}${n.notes?'<br><span class="r">📝 '+esc(n.notes)+'</span>':''}`;
-    el.dataset.pj=n.pj;bars.appendChild(el);
+    el.dataset.pj=n.pj;el.dataset.id=n.id;el.dataset.etype=n.kind==='equipment'?'equipment':n.kind==='booking'?'bookings':'activities';bars.appendChild(el);
   });
 
   drawDeps(rows,allEdges,critEdges);
@@ -522,6 +523,7 @@ function bindTips(){
     el.onmousemove=e=>{tip.innerHTML=el.dataset.tip;tip.style.opacity=1;tip.style.left=Math.min(e.clientX+14,innerWidth-260)+'px';tip.style.top=(e.clientY+14)+'px';};
     el.onmouseleave=()=>tip.style.opacity=0;
     if(el.dataset.pj)el.onclick=()=>showDetail(el.dataset.pj);
+    if(el.dataset.etype&&el.dataset.id&&canWrite())el.ondblclick=e=>{e.stopPropagation();tip.style.opacity=0;openForm(el.dataset.etype,el.dataset.id);};
   });
 }
 
