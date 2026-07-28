@@ -182,7 +182,7 @@
         <span><span class="sw" style="background:var(--exec)"></span>Execution</span>
         <span><span class="sw" style="background:var(--equip)"></span>Equipment lead time</span>
         <span><span class="sw" style="background:var(--people)"></span>Training / medical / travel</span>
-        <span><span class="sw dia" style="background:var(--ms)"></span>Milestone</span>
+        <span><span class="sw dia" style="background:var(--ms)"></span>Milestone (fill = % complete)</span>
         <span><span class="sw" style="background:var(--crit);border-radius:50%"></span>Critical path</span>
       </div>
     </div>
@@ -408,9 +408,14 @@ function render(){
     if(!shown[catKey])return;
     if(n.kind==='milestone'){
       if(!n.start)return;
-      const el=document.createElement('div');el.className='ms';el.style.background=n.crit?'#DC2626':CATCOL.ms;el.style.left=(x(n.start)-7)+'px';el.style.top=(top+9)+'px';
-      el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)}</span>`;el.dataset.pj=n.pj;bars.appendChild(el);
-      const lab=document.createElement('div');lab.className='mslabel';lab.style.color=n.crit?'#DC2626':CATCOL.ms;lab.style.left=(x(n.start)+12)+'px';lab.style.top=(top+10)+'px';lab.textContent=n.name;bars.appendChild(lab);
+      const col=n.crit?'#DC2626':CATCOL.ms; const pct=Math.max(0,Math.min(100,Math.round((n.prog||0)*100)));
+      const el=document.createElement('div');el.className='ms';el.style.left=(x(n.start)-7)+'px';el.style.top=(top+9)+'px';
+      el.style.border='2px solid '+col;
+      // fill the diamond by % complete: hollow at 0, solid at 100, gradient between (mirrors activity progress)
+      el.style.background=pct<=0?'#fff':pct>=100?col:`linear-gradient(to top, ${col} ${pct}%, #fff ${pct}%)`;
+      const state=pct>=100?'achieved':pct>0?pct+'% complete':'not started';
+      el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} · ${state}</span>`;el.dataset.pj=n.pj;bars.appendChild(el);
+      const lab=document.createElement('div');lab.className='mslabel';lab.style.color=col;lab.style.left=(x(n.start)+12)+'px';lab.style.top=(top+10)+'px';lab.textContent=n.name;bars.appendChild(lab);
       return;
     }
     if(!n.start||!n.end)return;
