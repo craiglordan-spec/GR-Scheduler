@@ -167,6 +167,7 @@
           <button class="btn" data-zoom="2.1">Week</button>
           <span style="width:6px"></span>
           <button class="btn on" id="scopeBtn" onclick="toggleScope()" title="Show only projects that have activities, equipment or bookings">Scheduled only</button>
+          <button class="btn" id="scopeMgrBtn" onclick="openScope()" title="Choose which projects appear in the project dropdowns" style="display:none">⚙ Projects in scope</button>
         </div>
       </div>
       <div class="gantt">
@@ -375,6 +376,8 @@ function render(){
   const {rows,allEdges,critEdges}=buildRows(); LAST={rows,allEdges,critEdges};
   const bodyH=rows.length*ROW_H;
   renderKPIs();
+  const smb=document.getElementById('scopeMgrBtn');
+  if(smb){smb.style.display=canWrite()?'':'none';smb.textContent=`⚙ Projects in scope (${scopedProjects().length})`;}
 
   document.getElementById('lrows').innerHTML=rows.map(r=>{
     if(r.grp)return `<div class="lrow grp ${selected===r.pj?'sel':''}" data-pj="${r.pj}"><span class="pid">${r.pj}</span><span class="tname">${esc(r.p.name)}</span></div>`;
