@@ -27,6 +27,7 @@ const FILES = {
   bookings: path.join(DATA_DIR, "bookings.json"),
   crew: path.join(DATA_DIR, "crew.json")
 };
+const SETTINGS_F = path.join(DATA_DIR, "settings.json");
 const SEED_DIR = path.join(__dirname, "seed");
 function readJSON(f, fallback = []) { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return fallback; } }
 function writeJSON(f, d) { fs.writeFileSync(f, JSON.stringify(d, null, 2)); }
@@ -97,6 +98,13 @@ crud("activities", "act");
 crud("equipment", "eq");
 crud("bookings", "bk");
 crud("crew", "cr");
+
+// ─── Settings (singleton: scheduling scope, etc.) ─────────────────────────────
+app.get("/api/settings", auth, (_, res) => res.json(readJSON(SETTINGS_F, { scope: [] })));
+app.put("/api/settings", auth, canWrite, (req, res) => {
+  const s = { ...readJSON(SETTINGS_F, { scope: [] }), ...req.body };
+  writeJSON(SETTINGS_F, s); res.json({ ok: true, settings: s });
+});
 
 // ─── InvoiceDesk read proxy (cached, server-to-server) ────────────────────────
 const proxy = (fn) => async (req, res) => { try { const r = await fn(); res.json({ source: r.source, data: r.data, error: r.error || null }); } catch (e) { res.status(502).json({ error: e.message }); } };

@@ -219,6 +219,7 @@ const STCFG={Draft:{c:'#6B7280',bg:'#F3F4F6'},Submitted:{c:'#92400E',bg:'#FFF7ED
 let TOKEN=localStorage.getItem('gr_token')||'', ME=null;
 let projects=[],ar=[],ap=[],po=[],activities=[],equipment=[],bookings=[],crew=[];
 let idStatus={source:'',error:'',count:0};
+let SCOPE=[]; let lastProject=localStorage.getItem('gr_lastproj')||'';
 let dayW=3.05; const ZOOM_BASE=3.05;
 const shown={exec:true,equip:true,people:true,inv:true};
 let selected=null, tab='activities';
@@ -265,11 +266,12 @@ async function boot(){
   if(firstScheduled)showDetail(firstScheduled.id);
 }
 async function loadAll(){
-  const [p,a1,a2,a3,act,eq,bk,cr]=await Promise.all([
+  const [p,a1,a2,a3,act,eq,bk,cr,st]=await Promise.all([
     api('/api/invoicedesk/projects'),api('/api/invoicedesk/ar'),api('/api/invoicedesk/ap'),api('/api/invoicedesk/po'),
-    api('/api/activities'),api('/api/equipment'),api('/api/bookings'),api('/api/crew')
+    api('/api/activities'),api('/api/equipment'),api('/api/bookings'),api('/api/crew'),api('/api/settings')
   ]);
   projects=p.data||[]; ar=a1.data||[]; ap=a2.data||[]; po=a3.data||[]; activities=act||[]; equipment=eq||[]; bookings=bk||[]; crew=cr||[];
+  SCOPE=(st&&st.scope)||[];
   idStatus={source:p.source||'',error:p.error||'',count:projects.length};
 }
 function updateChip(){
@@ -526,10 +528,11 @@ function crewName(id){const c=crew.find(c=>c.id===id);return c?c.name:'—';}
 function renderDrawer(){
   const actions=document.getElementById('drawerActions');
   const addLbl={activities:'Activity',bookings:'Booking',crew:'Crew member'}[tab]||'Item';
-  actions.innerHTML=canWrite()?(
+  const scopeBtn=canWrite()?`<button class="btn sm" onclick="openScope()" title="Choose which projects appear in the project dropdowns">⚙ Projects in scope (${scopedProjects().length})</button>`:'';
+  actions.innerHTML=canWrite()?(scopeBtn+(
     tab==='equipment'?`<button class="btn sm" onclick="importPOs()">↓ Import from POs</button><button class="btn sm primary" onclick="openForm('equipment')">+ Equipment</button>`
     :`<button class="btn sm primary" onclick="openForm('${tab}')">+ ${addLbl}</button>`
-  ):'';
+  )):'';
   const body=document.getElementById('drawerBody');
   const acted=(id,type,canMove)=>{
     if(!canWrite())return '<td></td>';
@@ -564,7 +567,19 @@ async function moveEntry(type,id,dir){
 function table(h,rows){return `<table><thead><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows||`<tr><td colspan="${h.length}" style="padding:24px;text-align:center;color:var(--text3)">Nothing yet</td></tr>`}</tbody></table>`;}
 
 // ─── Forms ──────────────────────────────────────────────────────────────────
-function projOpts(v){return projects.map(p=>`<option value="${p.id}" ${p.id===v?'selected':''}>${esc(p.id)} — ${esc(p.name)}</option>`).join('');}
+// Projects shown in pickers: the curated scope + any project that already has entries (never lose access) + the current value.
+function scopedProjects(){const sc=new Set(SCOPE);return projects.filter(p=>sc.has(p.id)||projectHasSchedule(p.id));}
+function projOpts(v,showAll){
+  let list=showAll?projects.slice():scopedProjects();
+  if(v&&!list.some(p=>p.id===v)){const extra=projects.find(p=>p.id===v);if(extra)list=[extra,...list];}
+  list.sort((a,b)=>(a.id||'').localeCompare(b.id||''));
+  return list.map(p=>`<option value="${p.id}" ${p.id===v?'selected':''}>${esc(p.id)} — ${esc(p.name)}</option>`).join('');
+}
+// Project field for entry forms: defaults to the open/last-used project; "show all" link reveals every project.
+function projField(rec){
+  const def=rec.projectId||selected||lastProject||'';
+  return `<label class="field-label">Project <a href="#" onclick="event.preventDefault();const s=document.getElementById('f-projectId');s.innerHTML=projOpts(s.value,true);this.style.display='none'" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--exec);margin-left:6px">show all</a></label><select id="f-projectId">${projOpts(def,false)}</select>`;
+}
 function actOpts(v,pj){return `<option value="">— none —</option>`+activities.filter(a=>!pj||a.projectId===pj).map(a=>`<option value="${a.id}" ${a.id===v?'selected':''}>${esc(a.name)}</option>`).join('');}
 function crewOpts(v){return crew.map(c=>`<option value="${c.id}" ${c.id===v?'selected':''}>${esc(c.name)}</option>`).join('');}
 function selOpts(arr,v){return arr.map(o=>`<option value="${o}" ${o===v?'selected':''}>${o}</option>`).join('');}
@@ -572,7 +587,7 @@ function openForm(type,id){
   const rec=id?({activities,equipment,bookings,crew}[type]).find(x=>x.id===id):{};
   let fields='';
   if(type==='activities')fields=`
-    <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
+    <div class="field">${projField(rec)}</div>
     <div class="field"><label>Activity name</label><input id="f-name" value="${esc(rec.name)}"/></div>
     <div class="grid2"><div class="field"><label>Category</label><select id="f-category">${['exec','equipment','people','milestone'].map(c=>`<option value="${c}" ${c===(rec.category||'exec')?'selected':''}>${CATLABEL[c]}</option>`).join('')}</select></div><div class="field"><label>% complete</label><input id="f-percentComplete" type="number" min="0" max="100" value="${rec.percentComplete!=null?Math.round(rec.percentComplete*100):0}"/></div></div>
     <div class="grid2"><div class="field"><label>Start</label><input id="f-start" type="date" value="${esc(rec.start)}"/></div><div class="field"><label>Set finish by</label><select id="f-finmode" onchange="toggleFinishMode()"><option value="date">End date</option><option value="days">Duration (days)</option></select></div></div>
@@ -582,13 +597,13 @@ function openForm(type,id){
     </div>
     <div class="field"><label>Depends on (activity)</label><select id="f-deps">${actOpts((rec.deps||[])[0],rec.projectId)}</select></div>`;
   if(type==='equipment')fields=`
-    <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
+    <div class="field">${projField(rec)}</div>
     <div class="field"><label>Item</label><input id="f-name" value="${esc(rec.name)}"/></div>
     <div class="grid2"><div class="field"><label>Supplier</label><input id="f-supplier" value="${esc(rec.supplier)}"/></div><div class="field"><label>Status</label><select id="f-status">${selOpts(['quote','ordered','in-transit','delivered'],rec.status||'ordered')}</select></div></div>
     <div class="grid2"><div class="field"><label>Order date</label><input id="f-orderDate" type="date" value="${esc(rec.orderDate)}"/></div><div class="field"><label>ETA</label><input id="f-eta" type="date" value="${esc(rec.eta)}"/></div></div>
     <div class="field"><label>Blocks activity (needs this to arrive first)</label><select id="f-blocksActivityId">${actOpts(rec.blocksActivityId,rec.projectId)}</select></div>`;
   if(type==='bookings')fields=`
-    <div class="field"><label>Project</label><select id="f-projectId">${projOpts(rec.projectId)}</select></div>
+    <div class="field">${projField(rec)}</div>
     <div class="grid2"><div class="field"><label>Type</label><select id="f-type">${selOpts(['training','medical','travel'],rec.type||'training')}</select></div><div class="field"><label>Person</label><select id="f-crewId">${crewOpts(rec.crewId)}</select></div></div>
     <div class="field"><label>Detail</label><input id="f-label" value="${esc(rec.label)}" placeholder="e.g. HV switching / PNG medical / Flights"/></div>
     <div class="grid2"><div class="field"><label>Start</label><input id="f-start" type="date" value="${esc(rec.start)}"/></div><div class="field"><label>End</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div></div>
@@ -602,6 +617,36 @@ function openForm(type,id){
 }
 function closeForm(){document.getElementById('modalRoot').innerHTML='';}
 function toggleFinishMode(){const m=gv('f-finmode');const we=document.getElementById('wrap-end'),wd=document.getElementById('wrap-days');if(we)we.style.display=m==='days'?'none':'';if(wd)wd.style.display=m==='days'?'':'none';}
+// ─── Projects-in-scope manager ────────────────────────────────────────────────
+function openScope(){
+  const sc=new Set(SCOPE);
+  const rows=projects.slice().sort((a,b)=>(a.id||'').localeCompare(b.id||'')).map(p=>{
+    const has=projectHasSchedule(p.id);
+    return `<label style="display:flex;align-items:center;gap:9px;padding:6px 4px;border-bottom:1px solid #F0F2F6;font-size:12.5px;cursor:pointer">
+      <input type="checkbox" value="${p.id}" ${sc.has(p.id)||has?'checked':''} ${has?'disabled':''}/>
+      <b style="min-width:52px">${esc(p.id)}</b><span style="flex:1">${esc(p.name)}</span>
+      ${has?'<span style="font-size:10px;color:var(--text3)">has entries</span>':''}</label>`;
+  }).join('');
+  document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeForm()"><div class="modal">
+    <h3>Projects in scope</h3>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Tick the projects you're actively scheduling. Only these (plus any that already have entries) appear in the project dropdowns. Projects with entries stay in scope automatically.</div>
+    <div style="margin-bottom:10px"><input id="scope-search" placeholder="Filter…" oninput="filterScope(this.value)" style="width:100%;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:7px"/></div>
+    <div id="scopeList" style="max-height:46vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:4px 10px">${rows}</div>
+    <div style="display:flex;gap:8px;margin-top:14px;align-items:center">
+      <button class="btn" onclick="scopeAll(true)">Select all</button>
+      <button class="btn" onclick="scopeAll(false)">Clear</button>
+      <span style="flex:1"></span>
+      <button class="btn" onclick="closeForm()">Cancel</button>
+      <button class="btn primary" onclick="saveScope()">Save</button>
+    </div></div></div>`;
+}
+function filterScope(q){q=(q||'').toLowerCase();document.querySelectorAll('#scopeList label').forEach(l=>{l.style.display=l.textContent.toLowerCase().includes(q)?'':'none';});}
+function scopeAll(on){document.querySelectorAll('#scopeList input:not(:disabled)').forEach(i=>i.checked=on);}
+async function saveScope(){
+  const ids=[...document.querySelectorAll('#scopeList input:checked')].map(i=>i.value);
+  try{await api('/api/settings',{method:'PUT',body:JSON.stringify({scope:ids})});SCOPE=ids;closeForm();renderDrawer();}
+  catch(e){alert('Could not save scope: '+e.message);}
+}
 const gv=id=>{const el=document.getElementById(id);return el?el.value:'';};
 async function saveForm(type,id){
   let body={};
@@ -616,6 +661,7 @@ async function saveForm(type,id){
   try{
     if(id)await api(`/api/${type}/${id}`,{method:'PUT',body:JSON.stringify(body)});
     else await api(`/api/${type}`,{method:'POST',body:JSON.stringify(body)});
+    if(body.projectId){lastProject=body.projectId;localStorage.setItem('gr_lastproj',lastProject);}
     closeForm();await loadAll();computeWindow();renderDrawer();if(selected)showDetail(selected);else render();
   }catch(e){alert('Save failed: '+e.message);}
 }
