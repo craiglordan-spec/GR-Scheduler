@@ -168,6 +168,7 @@
           <span style="width:6px"></span>
           <button class="btn on" id="scopeBtn" onclick="toggleScope()" title="Show only projects that have activities, equipment or bookings">Scheduled only</button>
           <button class="btn" id="scopeMgrBtn" onclick="openScope()" title="Choose which projects appear in the project dropdowns" style="display:none">⚙ Projects in scope</button>
+          <button class="btn" id="reschedBtn" onclick="reschedule()" title="Recalculate all dependent activity dates from their predecessors" style="display:none">↻ Reschedule</button>
         </div>
       </div>
       <div class="gantt">
@@ -306,7 +307,7 @@ const arEx=inv=>(inv.lines||[]).reduce((s,l)=>s+(Number(l.qty)||0)*(Number(l.rat
 function nodesFor(pj){
   const ns=[];
   activities.filter(a=>a.projectId===pj).forEach(a=>ns.push({
-    kind:a.category==='milestone'?'milestone':'activity',id:a.id,pj,name:a.name,order:a.order,
+    kind:a.category==='milestone'?'milestone':'activity',id:a.id,pj,name:a.name,order:a.order,notes:a.notes,
     cat:a.category==='milestone'?'ms':(CATKEY[a.category]||'exec'),start:d(a.start),end:d(a.end||a.start),
     prog:a.percentComplete||0,deps:a.deps||[]}));
   equipment.filter(e=>e.projectId===pj).forEach(e=>ns.push({
@@ -378,6 +379,7 @@ function render(){
   renderKPIs();
   const smb=document.getElementById('scopeMgrBtn');
   if(smb){smb.style.display=canWrite()?'':'none';smb.textContent=`⚙ Projects in scope (${scopedProjects().length})`;}
+  const rb=document.getElementById('reschedBtn');if(rb)rb.style.display=canWrite()?'':'none';
 
   document.getElementById('lrows').innerHTML=rows.map(r=>{
     if(r.grp)return `<div class="lrow grp ${selected===r.pj?'sel':''}" data-pj="${r.pj}"><span class="pid">${r.pj}</span><span class="tname">${esc(r.p.name)}</span></div>`;
@@ -419,7 +421,7 @@ function render(){
       // fill the diamond by % complete: hollow at 0, solid at 100, gradient between (mirrors activity progress)
       el.style.background=pct<=0?'#fff':pct>=100?col:`linear-gradient(to top, ${col} ${pct}%, #fff ${pct}%)`;
       const state=pct>=100?'achieved':pct>0?pct+'% complete':'not started';
-      el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} · ${state}</span>`;el.dataset.pj=n.pj;bars.appendChild(el);
+      el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} · ${state}</span>${n.notes?'<br><span class="r">📝 '+esc(n.notes)+'</span>':''}`;el.dataset.pj=n.pj;bars.appendChild(el);
       const lab=document.createElement('div');lab.className='mslabel';lab.style.color=col;lab.style.left=(x(n.start)+12)+'px';lab.style.top=(top+10)+'px';lab.textContent=n.name;bars.appendChild(lab);
       return;
     }
@@ -432,7 +434,7 @@ function render(){
     let extra='';
     if(n.kind==='equipment')extra=`<br><span class="r">${esc(n.supplier||'')} · ${esc(n.status||'')}</span><br><span class="r">ETA ${fmtd(n.end)}</span>`;
     if(n.kind==='booking')extra=`<br><span class="r">status: ${esc(n.bstatus||'')}</span>`;
-    el.dataset.tip=`<b>${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} → ${fmtd(n.end)} · ${wks} wk${wks!==1?'s':''}</span>${extra}${n.crit?'<br><span style="color:#FCA5A5">● critical path</span>':''}`;
+    el.dataset.tip=`<b>${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} → ${fmtd(n.end)} · ${wks} wk${wks!==1?'s':''}</span>${extra}${n.crit?'<br><span style="color:#FCA5A5">● critical path</span>':''}${n.notes?'<br><span class="r">📝 '+esc(n.notes)+'</span>':''}`;
     el.dataset.pj=n.pj;bars.appendChild(el);
   });
 
@@ -527,7 +529,8 @@ function bindTips(){
 function toggleScope(){showEmptyProjects=!showEmptyProjects;const b=document.getElementById('scopeBtn');b.textContent=showEmptyProjects?'All projects':'Scheduled only';b.classList.toggle('on',!showEmptyProjects);render();}
 function setTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));renderDrawer();}
 function pjName(id){const p=projects.find(p=>p.id===id);return p?`${id}`:id||'—';}
-function crewName(id){const c=crew.find(c=>c.id===id);return c?c.name:'—';}
+function crewName(id){const c=crew.find(c=>c.id===id);return c?c.name+(c.type==='team'?' (team)':''):'—';}
+function entName(id){const a=activities.find(x=>x.id===id);if(a)return a.name;const e=equipment.find(x=>x.id===id);if(e)return e.name;const b=bookings.find(x=>x.id===id);if(b)return b.label||b.type;return id;}
 function renderDrawer(){
   const actions=document.getElementById('drawerActions');
   const addLbl={activities:'Activity',bookings:'Booking',crew:'Crew member'}[tab]||'Item';
@@ -544,13 +547,13 @@ function renderDrawer(){
   };
   const ordered=(list,dateKey)=>list.slice().sort((a,b)=>(a.projectId||'').localeCompare(b.projectId||'')||((a.order==null?9e9:a.order)-(b.order==null?9e9:b.order))||(new Date(a[dateKey]||0)-new Date(b[dateKey]||0)));
   if(tab==='activities'){
-    body.innerHTML=table(['Project','Order','Activity','Category','Start','End','%','Deps',''],ordered(activities,'start').map(a=>`<tr><td>${esc(a.projectId)}</td><td style="color:var(--text3)">${a.order==null?'—':a.order+1}</td><td>${esc(a.name)}</td><td>${esc(CATLABEL[a.category]||a.category)}</td><td>${esc(a.start)}</td><td>${esc(a.end)}</td><td>${Math.round((a.percentComplete||0)*100)}%</td><td style="color:var(--text3)">${esc((a.deps||[]).join(', '))}</td>${acted(a.id,'activities',true)}</tr>`).join(''));
+    body.innerHTML=table(['Project','Order','Activity','Category','Start','End','%','Depends on','Notes',''],ordered(activities,'start').map(a=>`<tr><td>${esc(a.projectId)}</td><td style="color:var(--text3)">${a.order==null?'—':a.order+1}</td><td>${esc(a.name)}</td><td>${esc(CATLABEL[a.category]||a.category)}</td><td>${esc(a.start)}</td><td>${esc(a.end)}</td><td>${Math.round((a.percentComplete||0)*100)}%</td><td style="color:var(--text3);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc((a.deps||[]).map(entName).join(', '))}">${esc((a.deps||[]).map(entName).join(', '))||'—'}</td><td style="color:var(--text3);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(a.notes||'')}">${esc(a.notes||'')}</td>${acted(a.id,'activities',true)}</tr>`).join(''));
   }else if(tab==='equipment'){
     body.innerHTML=table(['Project','Item','Supplier','Order date','ETA','Status','Blocks','Src',''],ordered(equipment,'orderDate').map(e=>`<tr><td>${esc(e.projectId)}</td><td>${esc(e.name)}</td><td>${esc(e.supplier)}</td><td>${esc(e.orderDate)}</td><td>${esc(e.eta)}</td><td>${esc(e.status)}</td><td style="color:var(--text3)">${esc(e.blocksActivityId||'')}</td><td><span class="badge" style="background:var(--surface2);color:var(--text3)">${esc(e.source||'manual')}</span></td>${acted(e.id,'equipment',true)}</tr>`).join(''));
   }else if(tab==='bookings'){
     body.innerHTML=table(['Project','Type','Who','Detail','Start','End','Status','Blocks',''],ordered(bookings,'start').map(b=>`<tr><td>${esc(b.projectId)}</td><td>${esc(b.type)}</td><td>${esc(crewName(b.crewId))}</td><td>${esc(b.label||'')}</td><td>${esc(b.start)}</td><td>${esc(b.end)}</td><td>${esc(b.status)}</td><td style="color:var(--text3)">${esc(b.blocksActivityId||'')}</td>${acted(b.id,'bookings',true)}</tr>`).join(''));
   }else{
-    body.innerHTML=table(['Name','Role','Ticket expiry','Notes',''],crew.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.role)}</td><td>${esc(c.ticketExpiry||'')}</td><td>${esc(c.notes||'')}</td>${acted(c.id,'crew',false)}</tr>`).join(''));
+    body.innerHTML=table(['Name','Type','Role','Ticket expiry','Notes',''],crew.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(c=>`<tr><td>${esc(c.name)}</td><td>${c.type==='team'?'Team'+(c.size?' ('+c.size+')':''):'Person'}</td><td>${esc(c.role)}</td><td>${esc(c.ticketExpiry||'')}</td><td>${esc(c.notes||'')}</td>${acted(c.id,'crew',false)}</tr>`).join(''));
   }
 }
 // Move an entry up/down within its project (persists an `order` index on the group)
@@ -585,19 +588,21 @@ function projField(rec){
 }
 function actOpts(v,pj){return `<option value="">— none —</option>`+activities.filter(a=>!pj||a.projectId===pj).map(a=>`<option value="${a.id}" ${a.id===v?'selected':''}>${esc(a.name)}</option>`).join('');}
 // Predecessor options for an activity dependency: activities (excluding itself), equipment arrivals, and bookings — same project.
-function depOpts(v,pj){
+function depOpts(vArr,pj){
+  const sel=new Set(vArr||[]);
   const acts=activities.filter(a=>(!pj||a.projectId===pj)&&a.id!==editingId);
   const eqs=equipment.filter(e=>!pj||e.projectId===pj);
   const bks=bookings.filter(b=>!pj||b.projectId===pj);
-  let h=`<option value="">— none —</option>`;
-  if(acts.length)h+=`<optgroup label="Activities / milestones">${acts.map(a=>`<option value="${a.id}" ${a.id===v?'selected':''}>${esc(a.name)}</option>`).join('')}</optgroup>`;
-  if(eqs.length)h+=`<optgroup label="Equipment (arrival)">${eqs.map(e=>`<option value="${e.id}" ${e.id===v?'selected':''}>${esc(e.name)}${e.eta?` — ETA ${esc(e.eta)}`:''}</option>`).join('')}</optgroup>`;
-  if(bks.length)h+=`<optgroup label="Bookings">${bks.map(b=>`<option value="${b.id}" ${b.id===v?'selected':''}>${esc(b.label||b.type)}</option>`).join('')}</optgroup>`;
-  return h;
+  let h='';
+  if(acts.length)h+=`<optgroup label="Activities / milestones">${acts.map(a=>`<option value="${a.id}" ${sel.has(a.id)?'selected':''}>${esc(a.name)}</option>`).join('')}</optgroup>`;
+  if(eqs.length)h+=`<optgroup label="Equipment (arrival)">${eqs.map(e=>`<option value="${e.id}" ${sel.has(e.id)?'selected':''}>${esc(e.name)}${e.eta?` — ETA ${esc(e.eta)}`:''}</option>`).join('')}</optgroup>`;
+  if(bks.length)h+=`<optgroup label="Bookings">${bks.map(b=>`<option value="${b.id}" ${sel.has(b.id)?'selected':''}>${esc(b.label||b.type)}</option>`).join('')}</optgroup>`;
+  return h||`<option disabled>No predecessors in this project yet</option>`;
 }
+const selVals=id=>{const el=document.getElementById(id);return el?[...el.selectedOptions].map(o=>o.value).filter(Boolean):[];};
 // Rebuild dependent pickers when the project changes on a form.
-function onProjChange(){const pj=gv('f-projectId');const dep=document.getElementById('f-deps');if(dep)dep.innerHTML=depOpts(dep.value,pj);const blk=document.getElementById('f-blocksActivityId');if(blk)blk.innerHTML=actOpts(blk.value,pj);}
-function crewOpts(v){return crew.map(c=>`<option value="${c.id}" ${c.id===v?'selected':''}>${esc(c.name)}</option>`).join('');}
+function onProjChange(){const pj=gv('f-projectId');const dep=document.getElementById('f-deps');if(dep)dep.innerHTML=depOpts(selVals('f-deps'),pj);const blk=document.getElementById('f-blocksActivityId');if(blk)blk.innerHTML=actOpts(blk.value,pj);}
+function crewOpts(v){return crew.map(c=>`<option value="${c.id}" ${c.id===v?'selected':''}>${esc(c.name)}${c.type==='team'?` (team${c.size?' of '+c.size:''})`:''}</option>`).join('');}
 function selOpts(arr,v){return arr.map(o=>`<option value="${o}" ${o===v?'selected':''}>${o}</option>`).join('');}
 function openForm(type,id){
   editingId=id||'';
@@ -612,7 +617,8 @@ function openForm(type,id){
       <div class="field" id="wrap-end"><label>End date</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div>
       <div class="field" id="wrap-days" style="display:none"><label>Duration (days, incl.)</label><input id="f-days" type="number" min="1" value="${(rec.start&&rec.end)?(Math.round((new Date(rec.end)-new Date(rec.start))/86400000)+1):''}" placeholder="e.g. 10"/></div>
     </div>
-    <div class="field"><label>Depends on (predecessor)</label><select id="f-deps">${depOpts((rec.deps||[])[0],rec.projectId||selected||lastProject||'')}</select></div>`;
+    <div class="field"><label>Depends on (predecessors) <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">— Ctrl/Cmd-click for several; dependents auto-shift</span></label><select id="f-deps" multiple size="6">${depOpts(rec.deps||[],rec.projectId||selected||lastProject||'')}</select></div>
+    <div class="field"><label>Notes / comments</label><textarea id="f-notes" rows="2" placeholder="Optional">${esc(rec.notes||'')}</textarea></div>`;
   if(type==='equipment')fields=`
     <div class="field">${projField(rec)}</div>
     <div class="field"><label>Item</label><input id="f-name" value="${esc(rec.name)}"/></div>
@@ -626,7 +632,8 @@ function openForm(type,id){
     <div class="grid2"><div class="field"><label>Start</label><input id="f-start" type="date" value="${esc(rec.start)}"/></div><div class="field"><label>End</label><input id="f-end" type="date" value="${esc(rec.end)}"/></div></div>
     <div class="grid2"><div class="field"><label>Status</label><select id="f-status">${selOpts(['todo','booked','scheduled','done'],rec.status||'todo')}</select></div><div class="field"><label>Blocks activity</label><select id="f-blocksActivityId">${actOpts(rec.blocksActivityId,rec.projectId)}</select></div></div>`;
   if(type==='crew')fields=`
-    <div class="field"><label>Name</label><input id="f-name" value="${esc(rec.name)}"/></div>
+    <div class="grid2"><div class="field"><label>Type</label><select id="f-ptype" onchange="document.getElementById('wrap-size').style.display=this.value==='team'?'':'none'">${selOpts(['person','team'],rec.type||'person')}</select></div><div class="field" id="wrap-size" style="display:${rec.type==='team'?'':'none'}"><label>Team size</label><input id="f-size" type="number" min="1" value="${rec.size||''}" placeholder="e.g. 3"/></div></div>
+    <div class="field"><label>Name</label><input id="f-name" value="${esc(rec.name)}" placeholder="Person name or team name (e.g. HV Crew)"/></div>
     <div class="field"><label>Role</label><input id="f-role" value="${esc(rec.role)}"/></div>
     <div class="grid2"><div class="field"><label>Ticket expiry</label><input id="f-ticketExpiry" type="date" value="${esc(rec.ticketExpiry)}"/></div><div class="field"><label>Notes</label><input id="f-notes" value="${esc(rec.notes)}"/></div></div>`;
   const singular={activities:'activity',equipment:'equipment item',bookings:'booking',crew:'crew member'}[type]||type;
@@ -665,26 +672,71 @@ async function saveScope(){
   catch(e){alert('Could not save scope: '+e.message);}
 }
 const gv=id=>{const el=document.getElementById(id);return el?el.value:'';};
+// ─── Auto-scheduling: cascade finish→start along dependencies ─────────────────
+// Dependent activities move so they start after their latest predecessor finishes,
+// preserving each activity's duration. Equipment (ETA) and bookings (end) are inputs.
+const DAYMS=86400000;
+function finishOf(id,computed){
+  const a=activities.find(x=>x.id===id);
+  if(a){const c=computed[id];const end=c?c.end:a.end;return end?new Date(end):(a.start?new Date(a.start):null);}
+  const e=equipment.find(x=>x.id===id);if(e)return e.eta?new Date(e.eta):(e.orderDate?new Date(e.orderDate):null);
+  const b=bookings.find(x=>x.id===id);if(b)return (b.end||b.start)?new Date(b.end||b.start):null;
+  return null;
+}
+function autoSchedule(){
+  const acts=activities.slice();const idset=new Set(acts.map(a=>a.id));
+  const indeg={},adj={};acts.forEach(a=>{indeg[a.id]=0;adj[a.id]=[];});
+  acts.forEach(a=>(a.deps||[]).forEach(dep=>{if(idset.has(dep)){adj[dep].push(a.id);indeg[a.id]++;}}));
+  const q=acts.filter(a=>indeg[a.id]===0).map(a=>a.id),order=[];
+  while(q.length){const id=q.shift();order.push(id);adj[id].forEach(n=>{if(--indeg[n]===0)q.push(n);});}
+  if(order.length<acts.length)return {changes:[],cycle:true}; // dependency cycle — don't reschedule
+  const computed={},changes=[];
+  for(const id of order){
+    const a=activities.find(x=>x.id===id);const deps=(a.deps||[]).filter(Boolean);
+    if(!deps.length)continue; // independent — keep manual dates
+    let dur=1;if(a.start&&a.end){dur=Math.max(1,Math.round((new Date(a.end)-new Date(a.start))/DAYMS)+1);}
+    let latest=null;deps.forEach(d=>{const f=finishOf(d,computed);if(f&&(!latest||f>latest))latest=f;});
+    if(!latest)continue;
+    const isMs=a.category==='milestone';
+    const start=new Date(latest.getTime()+(isMs?0:DAYMS));
+    const end=isMs?new Date(start):new Date(start.getTime()+(dur-1)*DAYMS);
+    const ns=start.toISOString().slice(0,10),ne=end.toISOString().slice(0,10);
+    computed[id]={start:ns,end:ne};
+    if(a.start!==ns||a.end!==ne)changes.push({id,start:ns,end:ne});
+  }
+  return {changes,cycle:false};
+}
+async function applyAutoSchedule(){
+  const {changes,cycle}=autoSchedule();
+  if(cycle)showBanner('⚠ Dependency loop detected — auto-reschedule skipped. Check the predecessors.');
+  if(!changes.length)return false;
+  await Promise.all(changes.map(c=>api(`/api/activities/${c.id}`,{method:'PUT',body:JSON.stringify({start:c.start,end:c.end})})));
+  return true;
+}
+function showBanner(msg){const pw=document.getElementById('persistWarn');if(pw){pw.style.display='block';pw.textContent=msg;setTimeout(()=>{if(ME.persistent!==false)pw.style.display='none';},6000);}}
+async function reschedule(){try{const changed=await applyAutoSchedule();if(changed){await loadAll();computeWindow();}renderDrawer();if(selected)showDetail(selected);else render();}catch(e){alert('Reschedule failed: '+e.message);}}
 async function saveForm(type,id){
   let body={};
   if(type==='activities'){
     let end=gv('f-end');
     if(gv('f-finmode')==='days'){const days=Math.max(1,Number(gv('f-days'))||1);const s=gv('f-start');if(s){const dt=new Date(s);dt.setDate(dt.getDate()+days-1);end=dt.toISOString().slice(0,10);}}
-    body={projectId:gv('f-projectId'),name:gv('f-name'),category:gv('f-category'),percentComplete:(Number(gv('f-percentComplete'))||0)/100,start:gv('f-start'),end,deps:gv('f-deps')?[gv('f-deps')]:[]};
+    body={projectId:gv('f-projectId'),name:gv('f-name'),category:gv('f-category'),percentComplete:(Number(gv('f-percentComplete'))||0)/100,start:gv('f-start'),end,deps:selVals('f-deps'),notes:gv('f-notes')};
   }
   if(type==='equipment')body={projectId:gv('f-projectId'),name:gv('f-name'),supplier:gv('f-supplier'),status:gv('f-status'),orderDate:gv('f-orderDate'),eta:gv('f-eta'),blocksActivityId:gv('f-blocksActivityId')||null,source:id?undefined:'manual'};
   if(type==='bookings')body={projectId:gv('f-projectId'),type:gv('f-type'),crewId:gv('f-crewId'),label:gv('f-label'),start:gv('f-start'),end:gv('f-end'),status:gv('f-status'),blocksActivityId:gv('f-blocksActivityId')||null};
-  if(type==='crew')body={name:gv('f-name'),role:gv('f-role'),ticketExpiry:gv('f-ticketExpiry'),notes:gv('f-notes')};
+  if(type==='crew')body={name:gv('f-name'),role:gv('f-role'),type:gv('f-ptype')||'person',size:gv('f-ptype')==='team'?(Number(gv('f-size'))||null):null,ticketExpiry:gv('f-ticketExpiry'),notes:gv('f-notes')};
   try{
     if(id)await api(`/api/${type}/${id}`,{method:'PUT',body:JSON.stringify(body)});
     else await api(`/api/${type}`,{method:'POST',body:JSON.stringify(body)});
     if(body.projectId){lastProject=body.projectId;localStorage.setItem('gr_lastproj',lastProject);}
-    closeForm();await loadAll();computeWindow();renderDrawer();if(selected)showDetail(selected);else render();
+    closeForm();await loadAll();
+    if(await applyAutoSchedule())await loadAll();
+    computeWindow();renderDrawer();if(selected)showDetail(selected);else render();
   }catch(e){alert('Save failed: '+e.message);}
 }
 async function del(type,id){
   if(!confirm('Delete this item?'))return;
-  try{await api(`/api/${type}/${id}`,{method:'DELETE'});await loadAll();computeWindow();renderDrawer();if(selected)showDetail(selected);else render();}catch(e){alert('Delete failed: '+e.message);}
+  try{await api(`/api/${type}/${id}`,{method:'DELETE'});await loadAll();if(await applyAutoSchedule())await loadAll();computeWindow();renderDrawer();if(selected)showDetail(selected);else render();}catch(e){alert('Delete failed: '+e.message);}
 }
 async function importPOs(){
   try{const r=await api('/api/equipment/import-pos',{method:'POST'});await loadAll();computeWindow();renderDrawer();render();alert(`Imported ${r.added} equipment item(s) from InvoiceDesk POs.`);}catch(e){alert('Import failed: '+e.message);}
