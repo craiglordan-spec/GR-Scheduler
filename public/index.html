@@ -153,6 +153,12 @@
 
   <div id="persistWarn" style="display:none;background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:12.5px;font-weight:600"></div>
 
+  <nav id="viewNav" style="display:flex;gap:8px;margin-bottom:14px">
+    <button class="btn on" id="navTimeline" onclick="setView('timeline')">📅 Timeline</button>
+    <button class="btn" id="navAssets" onclick="setView('assets')">🧰 Asset register</button>
+  </nav>
+
+  <div id="viewTimeline">
   <div class="kpis" id="kpis"></div>
 
   <div class="layout">
@@ -208,6 +214,26 @@
     </div>
     <div id="drawerBody" style="max-height:340px;overflow:auto"></div>
   </div>
+  </div><!-- /viewTimeline -->
+
+  <div id="viewAssets" class="hide">
+    <div class="card">
+      <div class="card-hd">
+        <h2>Asset register</h2>
+        <div class="controls" id="assetActions"></div>
+      </div>
+      <div id="assetSummary" style="margin:4px 0 12px"></div>
+      <div id="assetFilter" class="controls" style="margin-bottom:10px"></div>
+      <div id="assetBody" style="overflow:auto"></div>
+      <div class="legend" style="margin-top:10px">
+        <span><span class="sw" style="background:#DC2626"></span>Overdue</span>
+        <span><span class="sw" style="background:#D97706"></span>Due within 30 days</span>
+        <span style="color:var(--text3)">· calibration = test gear · inspection = rigging &amp; lifting (statutory)</span>
+      </div>
+    </div>
+  </div>
+
+  <datalist id="assetCats"><option>Test equipment</option><option>Router</option><option>Rigging gear</option><option>Lifting winch</option></datalist>
 
   <footer>Prototype build · reads projects &amp; invoices from InvoiceDesk (server-to-server); scheduling data stored here.<br/>Gravel Road Consulting · Brisbane QLD</footer>
 </div>
@@ -223,7 +249,8 @@ const CATLABEL={exec:'Execution',equipment:'Equipment',equip:'Equipment',people:
 const CATKEY={exec:'exec',equipment:'equip',equip:'equip',people:'people',milestone:'ms',ms:'ms'}; // category value -> colour/toggle key
 const STCFG={Draft:{c:'#6B7280',bg:'#F3F4F6'},Submitted:{c:'#92400E',bg:'#FFF7ED'},Approved:{c:'#1D4ED8',bg:'#EFF6FF'},Paid:{c:'#15803D',bg:'#F0FDF4'},Overdue:{c:'#DC2626',bg:'#FEF2F2'}};
 let TOKEN=localStorage.getItem('gr_token')||'', ME=null;
-let projects=[],ar=[],ap=[],po=[],activities=[],equipment=[],bookings=[],crew=[];
+let projects=[],ar=[],ap=[],po=[],activities=[],equipment=[],bookings=[],crew=[],assets=[];
+let view='timeline', assetCat='all';
 let idStatus={source:'',error:'',count:0};
 let SCOPE=[]; let lastProject=localStorage.getItem('gr_lastproj')||''; let editingId='';
 let dayW=3.05; const ZOOM_BASE=3.05;
@@ -307,11 +334,11 @@ async function boot(){
   if(firstScheduled)showDetail(firstScheduled.id);
 }
 async function loadAll(){
-  const [p,a1,a2,a3,act,eq,bk,cr,st]=await Promise.all([
+  const [p,a1,a2,a3,act,eq,bk,cr,st,as]=await Promise.all([
     api('/api/invoicedesk/projects'),api('/api/invoicedesk/ar'),api('/api/invoicedesk/ap'),api('/api/invoicedesk/po'),
-    api('/api/activities'),api('/api/equipment'),api('/api/bookings'),api('/api/crew'),api('/api/settings')
+    api('/api/activities'),api('/api/equipment'),api('/api/bookings'),api('/api/crew'),api('/api/settings'),api('/api/assets')
   ]);
-  projects=p.data||[]; ar=a1.data||[]; ap=a2.data||[]; po=a3.data||[]; activities=act||[]; equipment=eq||[]; bookings=bk||[]; crew=cr||[];
+  projects=p.data||[]; ar=a1.data||[]; ap=a2.data||[]; po=a3.data||[]; activities=act||[]; equipment=eq||[]; bookings=bk||[]; crew=cr||[]; assets=as||[];
   SCOPE=(st&&st.scope)||[];
   idStatus={source:p.source||'',error:p.error||'',count:projects.length};
 }
@@ -780,6 +807,89 @@ async function del(type,id){
 }
 async function importPOs(){
   try{const r=await api('/api/equipment/import-pos',{method:'POST'});await loadAll();computeWindow();renderDrawer();render();alert(`Imported ${r.added} equipment item(s) from InvoiceDesk POs.`);}catch(e){alert('Import failed: '+e.message);}
+}
+
+// ─── Asset register ───────────────────────────────────────────────────────────
+const ASTATUS={'in-service':'In service','under-repair':'Under repair','retired':'Retired'};
+function setView(v){
+  view=v;
+  document.getElementById('navTimeline').classList.toggle('on',v==='timeline');
+  document.getElementById('navAssets').classList.toggle('on',v==='assets');
+  document.getElementById('viewTimeline').classList.toggle('hide',v!=='timeline');
+  document.getElementById('viewAssets').classList.toggle('hide',v!=='assets');
+  if(v==='assets')renderAssets();
+}
+function daysTo(d){if(!d)return null;const t=new Date(d);if(isNaN(t))return null;const today=new Date();today.setHours(0,0,0,0);t.setHours(0,0,0,0);return Math.round((t-today)/DAY);}
+function dueSeverity(d){const n=daysTo(d);if(n==null)return null;if(n<0)return 'over';if(n<=30)return 'soon';return 'ok';}
+function dueCell(d){
+  if(!d)return '<span style="color:var(--text3)">—</span>';
+  const n=daysTo(d),sev=dueSeverity(d);
+  const col=sev==='over'?'#DC2626':sev==='soon'?'#D97706':'var(--text2)';
+  const tag=sev==='over'?` · ${Math.abs(n)}d overdue`:sev==='soon'?` · in ${n}d`:'';
+  const w=(sev==='over'||sev==='soon')?'600':'400';
+  return `<span style="color:${col};font-weight:${w};white-space:nowrap">${esc(d)}${tag}</span>`;
+}
+function statusBadge(s){
+  const cfg=({'in-service':{c:'#15803D',bg:'#F0FDF4'},'under-repair':{c:'#92400E',bg:'#FFF7ED'},'retired':{c:'#6B7280',bg:'#F3F4F6'}})[s]||{c:'#6B7280',bg:'#F3F4F6'};
+  return `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;color:${cfg.c};background:${cfg.bg}">${ASTATUS[s]||esc(s||'—')}</span>`;
+}
+function assetRank(a){if(a.status==='retired')return 4;const s=[dueSeverity(a.calibrationDue),dueSeverity(a.inspectionDue)];if(s.includes('over'))return 0;if(s.includes('soon'))return 1;return 2;}
+function assetCompliance(){let over=0,soon=0;for(const a of assets){if(a.status==='retired')continue;const s=[dueSeverity(a.calibrationDue),dueSeverity(a.inspectionDue)];if(s.includes('over'))over++;else if(s.includes('soon'))soon++;}return {over,soon};}
+function renderAssets(){
+  document.getElementById('assetActions').innerHTML=canWrite()?`<button class="btn sm primary" onclick="openAssetForm()">+ Asset</button>`:'';
+  const sum=document.getElementById('assetSummary'),{over,soon}=assetCompliance();
+  if(!assets.length)sum.innerHTML=`<div style="color:var(--text2);font-size:13px">No assets in the register yet.${canWrite()?' Use “+ Asset” to add your test equipment, routers, rigging gear and the lifting winch.':''}</div>`;
+  else if(over||soon){const parts=[];if(over)parts.push(`<b style="color:#DC2626">${over} overdue</b>`);if(soon)parts.push(`<b style="color:#D97706">${soon} due within 30 days</b>`);sum.innerHTML=`<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:9px 14px;font-size:12.5px;color:#7F1D1D">⚠ Compliance — ${parts.join(' · ')} <span style="color:var(--text3)">(calibration &amp; inspection)</span></div>`;}
+  else sum.innerHTML=`<div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;border-radius:8px;padding:9px 14px;font-size:12.5px;font-weight:600">✓ All ${assets.length} asset${assets.length!==1?'s':''} current — nothing overdue or due within 30 days.</div>`;
+  const cats=[...new Set(assets.map(a=>a.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const fil=document.getElementById('assetFilter');
+  if(cats.length>1){fil.style.display='';fil.innerHTML=['all',...cats].map(c=>`<button class="btn sm ${assetCat===c?'on':''}" onclick="assetCat=this.dataset.c;renderAssets()" data-c="${esc(c)}">${c==='all'?'All':esc(c)} (${c==='all'?assets.length:assets.filter(a=>a.category===c).length})</button>`).join('');}
+  else{fil.style.display='none';fil.innerHTML='';}
+  let rows=assets.slice();
+  if(assetCat!=='all'&&cats.includes(assetCat))rows=rows.filter(a=>a.category===assetCat);
+  rows.sort((a,b)=>{const r=assetRank(a)-assetRank(b);return r||(a.name||'').localeCompare(b.name||'');});
+  const head=['Asset','Category','Make / model','Serial','Status','Holder / location','WLL','Calibration due','Inspection due',''];
+  const tr=rows.map(a=>`<tr>
+    <td><b>${esc(a.name)}</b></td>
+    <td>${esc(a.category||'')}</td>
+    <td>${esc(a.makeModel||'')}</td>
+    <td style="font-variant-numeric:tabular-nums">${esc(a.serial||'')}</td>
+    <td>${statusBadge(a.status)}</td>
+    <td>${esc(a.holder||'')}</td>
+    <td>${esc(a.wll||'')}</td>
+    <td>${dueCell(a.calibrationDue)}</td>
+    <td>${dueCell(a.inspectionDue)}</td>
+    ${canWrite()?`<td style="white-space:nowrap"><button class="btn sm" onclick="openAssetForm('${a.id}')">Edit</button> <button class="btn sm danger" onclick="delAsset('${a.id}')">✕</button></td>`:'<td></td>'}
+  </tr>`).join('');
+  document.getElementById('assetBody').innerHTML=table(head,tr);
+}
+function openAssetForm(id){
+  const rec=id?assets.find(x=>x.id===id):{};
+  if(id&&!rec)return;
+  const statusSel=`<select id="a-status">`+Object.entries(ASTATUS).map(([k,v])=>`<option value="${k}" ${k===(rec.status||'in-service')?'selected':''}>${v}</option>`).join('')+`</select>`;
+  const fields=`
+    <div class="grid2"><div class="field"><label>Asset name</label><input id="a-name" value="${esc(rec.name)}" placeholder="e.g. 3.2 t lever hoist"/></div><div class="field"><label>Category</label><input id="a-category" list="assetCats" value="${esc(rec.category)}" placeholder="Test equipment, Rigging gear…"/></div></div>
+    <div class="grid2"><div class="field"><label>Make / model</label><input id="a-makeModel" value="${esc(rec.makeModel)}"/></div><div class="field"><label>Serial no.</label><input id="a-serial" value="${esc(rec.serial)}"/></div></div>
+    <div class="grid2"><div class="field"><label>Status</label>${statusSel}</div><div class="field"><label>Holder / location</label><input id="a-holder" value="${esc(rec.holder)}" placeholder="e.g. Brisbane store / Dan"/></div></div>
+    <div class="grid2"><div class="field"><label>Purchase date</label><input id="a-purchaseDate" type="date" value="${esc(rec.purchaseDate)}"/></div><div class="field"><label>Purchase value (AUD)</label><input id="a-purchaseValue" type="number" min="0" step="0.01" value="${rec.purchaseValue!=null?rec.purchaseValue:''}"/></div></div>
+    <div class="grid2"><div class="field"><label>Working load limit (WLL)</label><input id="a-wll" value="${esc(rec.wll)}" placeholder="e.g. 3.2 t — rigging/lifting"/></div><div class="field"><label>&nbsp;</label><div style="font-size:11px;color:var(--text3);padding-top:8px">Leave WLL blank for non-lifting items.</div></div></div>
+    <div class="grid2"><div class="field"><label>Calibration due <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">— test gear</span></label><input id="a-calibrationDue" type="date" value="${esc(rec.calibrationDue)}"/></div><div class="field"><label>Inspection due <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">— rigging/lifting</span></label><input id="a-inspectionDue" type="date" value="${esc(rec.inspectionDue)}"/></div></div>
+    <div class="field"><label>Notes</label><textarea id="a-notes" rows="2" placeholder="Optional — e.g. inspection interval, cert reference">${esc(rec.notes||'')}</textarea></div>`;
+  document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeForm()"><div class="modal"><h3>${id?'Edit':'New'} asset</h3>${fields}<div style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" onclick="saveAsset('${id||''}')">Save</button></div></div></div>`;
+}
+async function saveAsset(id){
+  const val=gv('a-purchaseValue');
+  const body={name:gv('a-name').trim(),category:gv('a-category').trim(),makeModel:gv('a-makeModel'),serial:gv('a-serial'),status:gv('a-status'),holder:gv('a-holder'),purchaseDate:gv('a-purchaseDate'),purchaseValue:val!==''?Number(val):null,wll:gv('a-wll'),calibrationDue:gv('a-calibrationDue'),inspectionDue:gv('a-inspectionDue'),notes:gv('a-notes')};
+  if(!body.name){alert('Asset name is required.');return;}
+  try{
+    if(id)await api(`/api/assets/${id}`,{method:'PUT',body:JSON.stringify(body)});
+    else await api('/api/assets',{method:'POST',body:JSON.stringify(body)});
+    closeForm();assets=await api('/api/assets');renderAssets();
+  }catch(e){alert('Save failed: '+e.message);}
+}
+async function delAsset(id){
+  if(!confirm('Delete this asset from the register?'))return;
+  try{await api(`/api/assets/${id}`,{method:'DELETE'});assets=await api('/api/assets');renderAssets();}catch(e){alert('Delete failed: '+e.message);}
 }
 
 // ─── Events ─────────────────────────────────────────────────────────────────

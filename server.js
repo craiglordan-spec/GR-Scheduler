@@ -27,7 +27,8 @@ const FILES = {
   activities: path.join(DATA_DIR, "activities.json"),
   equipment: path.join(DATA_DIR, "equipment.json"),
   bookings: path.join(DATA_DIR, "bookings.json"),
-  crew: path.join(DATA_DIR, "crew.json")
+  crew: path.join(DATA_DIR, "crew.json"),
+  assets: path.join(DATA_DIR, "assets.json")
 };
 const SETTINGS_F = path.join(DATA_DIR, "settings.json");
 const SEED_DIR = path.join(__dirname, "seed");
@@ -101,6 +102,7 @@ crud("activities", "act");
 crud("equipment", "eq");
 crud("bookings", "bk");
 crud("crew", "cr");
+crud("assets", "as"); // company asset register (test equipment, routers, rigging, lifting gear)
 
 // ─── Settings (singleton: scheduling scope, etc.) ─────────────────────────────
 app.get("/api/settings", auth, (_, res) => res.json(readJSON(SETTINGS_F, { scope: [] })));
@@ -141,14 +143,15 @@ function weeksBetween(a, b) { if (!a || !b) return null; const d = (new Date(b) 
 // One CSV per record type, bundled into a single .zip download. Nested list
 // fields (activities.deps, settings.scope) are encoded as pipe-joined cells and
 // decoded again on restore. Numbers/booleans are coerced back by a small schema.
-const ENTITIES = ["activities", "equipment", "bookings", "crew"];
-const BACKUP_FILES = { activities: "activities.csv", equipment: "equipment.csv", bookings: "bookings.csv", crew: "crew.csv", settings: "settings.csv" };
+const ENTITIES = ["activities", "equipment", "bookings", "crew", "assets"];
+const BACKUP_FILES = { activities: "activities.csv", equipment: "equipment.csv", bookings: "bookings.csv", crew: "crew.csv", assets: "assets.csv", settings: "settings.csv" };
 // Preferred column order + type hints. Extra keys found in the data are appended.
 const SCHEMA = {
   activities: { cols: ["id", "projectId", "name", "category", "start", "end", "percentComplete", "deps", "order", "critical", "notes"], arrays: ["deps"], numbers: ["percentComplete", "order", "leadTimeWeeks"], booleans: ["critical"] },
   equipment:  { cols: ["id", "projectId", "name", "supplier", "orderDate", "eta", "leadTimeWeeks", "status", "source", "poId", "blocksActivityId", "order"], arrays: [], numbers: ["leadTimeWeeks", "order"], booleans: [] },
   bookings:   { cols: ["id", "projectId", "crewId", "type", "label", "start", "end", "status", "blocksActivityId", "order"], arrays: [], numbers: ["order"], booleans: [] },
   crew:       { cols: ["id", "name", "role", "type", "size", "ticketExpiry", "notes", "order"], arrays: [], numbers: ["size", "order"], booleans: [] },
+  assets:     { cols: ["id", "name", "category", "makeModel", "serial", "status", "holder", "purchaseDate", "purchaseValue", "wll", "calibrationDue", "inspectionDue", "notes", "order"], arrays: [], numbers: ["purchaseValue", "order"], booleans: [] },
   settings:   { cols: ["scope"], arrays: ["scope"], numbers: [], booleans: [] }
 };
 const ARRAY_DELIM = "|";

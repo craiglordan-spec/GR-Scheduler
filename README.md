@@ -25,7 +25,10 @@ With no `INVOICEDESK_API_KEY` set, it runs on **bundled sample data** so you can
 The Scheduler calls InvoiceDesk with a read-only API key (`x-api-key`). On the InvoiceDesk side, set `INVOICEDESK_READ_KEY` and the small middleware that lets `GET /api/*` through with that header. Endpoints consumed: `/api/projects`, `/api/ar`, `/api/ap`, `/api/po`. Results are cached (`INVOICEDESK_CACHE_TTL`).
 
 ## Data model (stored here)
-`crew`, `activities`, `equipment`, `bookings` — see `seed/*.json` for shapes. Projects and invoices are **never** stored here; they come from InvoiceDesk. Shared key = project id (e.g. `PNG-012`).
+`crew`, `activities`, `equipment`, `bookings`, `assets` — see `seed/*.json` for shapes. Projects and invoices are **never** stored here; they come from InvoiceDesk. Shared key = project id (e.g. `PNG-012`).
+
+## Asset register
+A top-level **Asset register** tab (switch from **Timeline** in the header) for the company's own gear — test equipment, routers, rigging gear, lifting winch, etc. Each asset holds identity (name, category, make/model, serial), status (in service / under repair / retired), holder/location, purchase date & value, working load limit (WLL), and two compliance dates: **calibration due** (test gear) and **inspection due** (rigging & lifting — statutory). The register flags anything **overdue** (red) or **due within 30 days** (amber), shows a compliance summary banner, filters by category, and sorts worst-first. Assets are included in **backup/restore**. Editing is admin/scheduler; viewers are read-only. Stored via `GET/POST/PUT/DELETE /api/assets`.
 
 ## Backup & restore (admin)
 Signed in as an **admin**, two buttons appear in the header:
