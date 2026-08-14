@@ -7,6 +7,8 @@ const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const JSZip = require("jszip");
+const Papa = require("papaparse");
 const invoicedesk = require("./invoicedesk");
 
 const app = express();
@@ -73,6 +75,7 @@ function requireRole(...roles) {
     : res.status(403).json({ error: `Requires role: ${roles.join(" or ")}` });
 }
 const canWrite = requireRole("admin", "scheduler");
+const isAdmin = requireRole("admin");
 
 app.get("/api/me", auth, (req, res) => res.json({ username: req.user.username, role: req.user.role, invoicedesk: invoicedesk.configured(), persistent: PERSISTENT }));
 
@@ -133,6 +136,138 @@ app.post("/api/equipment/import-pos", auth, canWrite, async (req, res) => {
   res.json({ ok: true, added, total: list.length });
 });
 function weeksBetween(a, b) { if (!a || !b) return null; const d = (new Date(b) - new Date(a)) / 604800000; return d > 0 ? Math.round(d) : null; }
+
+// ─── Backup & restore (admin-only) ────────────────────────────────────────────
+// One CSV per record type, bundled into a single .zip download. Nested list
+// fields (activities.deps, settings.scope) are encoded as pipe-joined cells and
+// decoded again on restore. Numbers/booleans are coerced back by a small schema.
+const ENTITIES = ["activities", "equipment", "bookings", "crew"];
+const BACKUP_FILES = { activities: "activities.csv", equipment: "equipment.csv", bookings: "bookings.csv", crew: "crew.csv", settings: "settings.csv" };
+// Preferred column order + type hints. Extra keys found in the data are appended.
+const SCHEMA = {
+  activities: { cols: ["id", "projectId", "name", "category", "start", "end", "percentComplete", "deps", "order", "critical", "notes"], arrays: ["deps"], numbers: ["percentComplete", "order", "leadTimeWeeks"], booleans: ["critical"] },
+  equipment:  { cols: ["id", "projectId", "name", "supplier", "orderDate", "eta", "leadTimeWeeks", "status", "source", "poId", "blocksActivityId", "order"], arrays: [], numbers: ["leadTimeWeeks", "order"], booleans: [] },
+  bookings:   { cols: ["id", "projectId", "crewId", "type", "label", "start", "end", "status", "blocksActivityId", "order"], arrays: [], numbers: ["order"], booleans: [] },
+  crew:       { cols: ["id", "name", "role", "type", "size", "ticketExpiry", "notes", "order"], arrays: [], numbers: ["size", "order"], booleans: [] },
+  settings:   { cols: ["scope"], arrays: ["scope"], numbers: [], booleans: [] }
+};
+const ARRAY_DELIM = "|";
+
+function columnsFor(name, rows) {
+  const cols = [...SCHEMA[name].cols];
+  for (const r of rows) for (const k of Object.keys(r || {})) if (!cols.includes(k)) cols.push(k);
+  return cols;
+}
+// Encode one record → flat object of string cells, ready for CSV.
+function encodeRow(name, rec, cols) {
+  const arrays = SCHEMA[name].arrays;
+  const out = {};
+  for (const c of cols) {
+    const v = rec[c];
+    if (arrays.includes(c)) out[c] = Array.isArray(v) ? v.join(ARRAY_DELIM) : (v == null ? "" : String(v));
+    else if (v == null) out[c] = "";
+    else if (typeof v === "object") out[c] = JSON.stringify(v); // defensive: unexpected nested object
+    else out[c] = String(v);
+  }
+  return out;
+}
+// Decode one CSV row-object → typed record.
+function decodeRow(name, row) {
+  const s = SCHEMA[name];
+  const rec = {};
+  for (const [k, raw] of Object.entries(row)) {
+    const cell = raw == null ? "" : String(raw);
+    if (s.arrays.includes(k)) { rec[k] = cell === "" ? [] : cell.split(ARRAY_DELIM).map(x => x.trim()).filter(Boolean); continue; }
+    if (cell === "") continue; // preserve "field absent" rather than inventing ""
+    if (s.numbers.includes(k) && cell !== "" && !isNaN(Number(cell))) { rec[k] = Number(cell); continue; }
+    if (s.booleans.includes(k) && (cell === "true" || cell === "false")) { rec[k] = cell === "true"; continue; }
+    rec[k] = cell;
+  }
+  return rec;
+}
+function entityToCsv(name, rows) {
+  const cols = columnsFor(name, rows);
+  const data = rows.map(r => encodeRow(name, r, cols));
+  return Papa.unparse({ fields: cols, data }, { quotes: true, newline: "\r\n" });
+}
+function csvToEntity(name, text) {
+  const parsed = Papa.parse((text || "").trim(), { header: true, skipEmptyLines: true });
+  return parsed.data.map(r => decodeRow(name, r));
+}
+
+app.get("/api/backup", auth, isAdmin, async (req, res) => {
+  try {
+    const stamp = new Date().toISOString();
+    const zip = new JSZip();
+    const counts = {};
+    for (const name of ENTITIES) {
+      const rows = readJSON(FILES[name]);
+      counts[name] = rows.length;
+      zip.file(BACKUP_FILES[name], entityToCsv(name, rows));
+    }
+    const settings = readJSON(SETTINGS_F, { scope: [] });
+    zip.file(BACKUP_FILES.settings, entityToCsv("settings", [settings]));
+    const manifest = { app: "GR-Scheduler", format: "csv-zip", version: 1, exportedAt: stamp, counts, arrayDelimiter: ARRAY_DELIM };
+    zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+    zip.file("README.txt",
+      "GR Scheduler backup\n" +
+      "===================\n" +
+      `Exported: ${stamp}\n\n` +
+      "One CSV per record type: activities, equipment, bookings, crew, settings.\n" +
+      `List fields (activities 'deps', settings 'scope') are encoded in a single cell, values separated by '${ARRAY_DELIM}'.\n` +
+      "Empty cell means the field is not set for that row.\n\n" +
+      "To restore: sign in as an admin, open the app header, choose 'Restore', and select this .zip file.\n" +
+      "Restore REPLACES all scheduler data. The server saves a safety snapshot of the current data first.\n" +
+      "You may edit the CSVs in Excel before restoring, but keep the column headers and the id column intact.\n");
+    const buf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    const fname = `gr-scheduler-backup-${stamp.slice(0, 10)}.zip`;
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${fname}"`);
+    res.send(buf);
+  } catch (e) {
+    console.error("[backup] failed", e);
+    res.status(500).json({ error: "Backup failed: " + e.message });
+  }
+});
+
+app.post("/api/restore", auth, isAdmin, express.raw({ type: ["application/zip", "application/octet-stream"], limit: "50mb" }), async (req, res) => {
+  try {
+    if (!req.body || !req.body.length) return res.status(400).json({ error: "No file received" });
+    let zip;
+    try { zip = await JSZip.loadAsync(req.body); } catch { return res.status(400).json({ error: "Not a valid .zip file" }); }
+    // Require every CSV so a partial/foreign zip can't silently wipe a store.
+    const missing = Object.values(BACKUP_FILES).filter(f => !zip.file(f));
+    if (missing.length) return res.status(400).json({ error: `Backup is missing: ${missing.join(", ")}. Use a full GR Scheduler backup .zip.` });
+
+    // Parse + validate everything BEFORE touching disk.
+    const parsed = {};
+    for (const name of ENTITIES) {
+      const rows = csvToEntity(name, await zip.file(BACKUP_FILES[name]).async("string"));
+      const bad = rows.findIndex(r => !r.id);
+      if (bad !== -1) return res.status(400).json({ error: `${BACKUP_FILES[name]} row ${bad + 2} has no id — restore aborted.` });
+      parsed[name] = rows;
+    }
+    const settingsRows = csvToEntity("settings", await zip.file(BACKUP_FILES.settings).async("string"));
+    const settings = settingsRows[0] || { scope: [] };
+    if (!Array.isArray(settings.scope)) settings.scope = [];
+
+    // Safety snapshot of current data, then write the restore.
+    const snap = { ts: new Date().toISOString() };
+    for (const name of ENTITIES) snap[name] = readJSON(FILES[name]);
+    snap.settings = readJSON(SETTINGS_F, { scope: [] });
+    const snapFile = path.join(DATA_DIR, `_pre-restore-${snap.ts.replace(/[:.]/g, "-")}.json`);
+    try { writeJSON(snapFile, snap); } catch (e) { console.warn("[restore] snapshot failed:", e.message); }
+
+    const counts = {};
+    for (const name of ENTITIES) { writeJSON(FILES[name], parsed[name]); counts[name] = parsed[name].length; }
+    writeJSON(SETTINGS_F, settings);
+    console.log(`[restore] by ${req.user.username}:`, counts, "snapshot", path.basename(snapFile));
+    res.json({ ok: true, counts, snapshot: path.basename(snapFile) });
+  } catch (e) {
+    console.error("[restore] failed", e);
+    res.status(500).json({ error: "Restore failed: " + e.message });
+  }
+});
 
 // ─── Static + health ──────────────────────────────────────────────────────────
 app.get("/health", (_, res) => res.json({ ok: true, invoicedesk: invoicedesk.configured(), persistent: PERSISTENT, dataDir: DATA_DIR, ts: new Date().toISOString() }));

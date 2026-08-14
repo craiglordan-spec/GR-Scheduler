@@ -27,6 +27,13 @@ The Scheduler calls InvoiceDesk with a read-only API key (`x-api-key`). On the I
 ## Data model (stored here)
 `crew`, `activities`, `equipment`, `bookings` — see `seed/*.json` for shapes. Projects and invoices are **never** stored here; they come from InvoiceDesk. Shared key = project id (e.g. `PNG-012`).
 
+## Backup & restore (admin)
+Signed in as an **admin**, two buttons appear in the header:
+- **⭳ Backup** — downloads `gr-scheduler-backup-YYYY-MM-DD.zip`: one CSV per record type (`activities`, `equipment`, `bookings`, `crew`, `settings`) plus a `manifest.json` and `README.txt`. List fields (`activities.deps`, `settings.scope`) are encoded in a single cell, values separated by `|`. An empty cell means the field is not set for that row. The CSVs open directly in Excel.
+- **⭱ Restore** — upload a backup `.zip` to rebuild the data. Restore **replaces all** scheduler data; the server writes a safety snapshot (`_pre-restore-<timestamp>.json` in `DATA_DIR`) before overwriting, and rejects any zip that isn't a complete backup. You may edit the CSVs before restoring — keep the column headers and the `id` column intact.
+
+Endpoints: `GET /api/backup`, `POST /api/restore` (both admin-only).
+
 ## Notes
 - Equipment can be **imported from InvoiceDesk POs** ("Import from POs") or added manually.
 - The **critical path** is computed from activity dependencies plus equipment ETAs and booking completion, and drawn in red.

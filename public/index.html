@@ -144,6 +144,9 @@
     <div style="display:flex;gap:10px;align-items:center">
       <span class="src-chip" id="srcChip"></span>
       <span id="whoami" style="font-size:12px;color:var(--text2)"></span>
+      <button class="btn" id="backupBtn" onclick="downloadBackup()" title="Download a CSV backup (.zip) of all scheduler data" style="display:none">⭳ Backup</button>
+      <button class="btn" id="restoreBtn" onclick="document.getElementById('restoreFile').click()" title="Restore all scheduler data from a backup .zip (replaces current data)" style="display:none">⭱ Restore</button>
+      <input type="file" id="restoreFile" accept=".zip" style="display:none" onchange="doRestore(this)"/>
       <button class="btn" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -240,6 +243,38 @@ async function api(path,opts={}){
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const canWrite=()=>ME&&(ME.role==='admin'||ME.role==='scheduler');
 
+// ─── Backup / restore (admin) ────────────────────────────────────────────────
+async function downloadBackup(){
+  const btn=document.getElementById('backupBtn');const old=btn.textContent;btn.disabled=true;btn.textContent='Preparing…';
+  try{
+    const r=await fetch('/api/backup',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(r.status===401){logout();return;}
+    if(!r.ok){let m='Backup failed';try{m=(await r.json()).error||m;}catch{}throw new Error(m);}
+    const blob=await r.blob();
+    let name='gr-scheduler-backup.zip';
+    const cd=r.headers.get('Content-Disposition')||'';const mm=cd.match(/filename="?([^"]+)"?/);if(mm)name=mm[1];
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  }catch(e){alert('Backup failed: '+e.message);}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+async function doRestore(input){
+  const file=input.files&&input.files[0];input.value='';
+  if(!file)return;
+  if(!confirm('Restore from "'+file.name+'"?\n\nThis REPLACES all scheduler data (activities, equipment, bookings, crew and settings) with the contents of this backup.\n\nA safety snapshot of the current data is saved on the server first. Continue?'))return;
+  const btn=document.getElementById('restoreBtn');const old=btn.textContent;btn.disabled=true;btn.textContent='Restoring…';
+  try{
+    const buf=await file.arrayBuffer();
+    const r=await fetch('/api/restore',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/zip'},body:buf});
+    if(r.status===401){logout();return;}
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error||'Restore failed');
+    const c=d.counts||{};
+    alert('Restore complete.\n\nActivities: '+(c.activities||0)+'\nEquipment: '+(c.equipment||0)+'\nBookings: '+(c.bookings||0)+'\nCrew: '+(c.crew||0)+'\n\nReloading…');
+    await boot();
+  }catch(e){alert('Restore failed: '+e.message);}
+  finally{btn.disabled=false;btn.textContent=old;}
+}
+
 // ─── Login ──────────────────────────────────────────────────────────────────
 async function doLogin(){
   const username=document.getElementById('lg-user').value.trim();
@@ -258,6 +293,9 @@ async function boot(){
   document.getElementById('login').classList.add('hide');
   document.getElementById('main').classList.remove('hide');
   document.getElementById('whoami').textContent=`${ME.username} · ${ME.role}`;
+  const isAdmin=ME.role==='admin';
+  document.getElementById('backupBtn').style.display=isAdmin?'':'none';
+  document.getElementById('restoreBtn').style.display=isAdmin?'':'none';
   const chip=document.getElementById('srcChip');
   chip.className='src-chip '+(ME.invoicedesk?'src-live':'src-sample');
   chip.innerHTML=`<span class="dot" style="background:${ME.invoicedesk?'#0891B2':'#D97706'}"></span>${ME.invoicedesk?'Linked to InvoiceDesk':'Sample data (InvoiceDesk not linked)'}`;
