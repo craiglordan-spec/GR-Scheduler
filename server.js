@@ -20,6 +20,8 @@ app.use(express.json({ limit: "2mb" }));
 // only when we fall back to local disk — surfaced in the UI as a warning.
 const VOL = process.env.RAILWAY_VOLUME_MOUNT_PATH || "";
 const DATA_DIR = process.env.DATA_DIR || VOL || path.join(__dirname, "data");
+// Monthly off-site backup: key-protected export of the data volume (see backup-export.js).
+require("./backup-export")(app, DATA_DIR, "GR Scheduler");
 const PERSISTENT = Boolean(process.env.DATA_DIR || VOL);
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 console.log(`[storage] DATA_DIR=${DATA_DIR} persistent=${PERSISTENT}${VOL ? ` (volume ${VOL})` : ""}`);
