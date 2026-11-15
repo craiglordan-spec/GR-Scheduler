@@ -12,6 +12,19 @@ const Papa = require("papaparse");
 const invoicedesk = require("./invoicedesk");
 
 const app = express();
+// Railway terminates TLS in front of the app; trust its proxy so req.ip is the real client.
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+// Security headers (same set as InvoiceDesk).
+app.use((req, res, next) => {
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  res.setHeader("Content-Security-Policy", "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://login.microsoftonline.com");
+  next();
+});
 app.use(express.json({ limit: "2mb" }));
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
@@ -45,24 +58,80 @@ for (const [k, f] of Object.entries(FILES)) {
 }
 const uid = (p) => `${p}_${crypto.randomBytes(4).toString("hex")}`;
 
-// ─── Auth (role-based) ──────────────────────────────────────────────────────
+// ─── Auth (role-based) — same sign-in model as InvoiceDesk ────────────────────
+// Microsoft 365 sign-in via m365-auth.js. The Entra app uses the same role values as
+// InvoiceDesk (admin | editor | viewer); here "editor" means the Scheduler role.
+// Password accounts (break-glass) come from USERS: "username:password:role", roles
+// admin | scheduler | viewer.
+const ENTRA_ROLE = { admin: "admin", editor: "scheduler", viewer: "viewer" };
 function parseUsers() {
-  const raw = process.env.USERS || "admin:admin:admin";
-  return raw.split(",").map(s => s.trim()).filter(Boolean).map(s => {
+  return (process.env.USERS || "").split(",").map(s => s.trim()).filter(Boolean).map(s => {
     const [username, password, role = "viewer"] = s.split(":");
     return { username, password, role };
-  });
+  }).filter(u => u.username && u.password);
 }
 const USERS = parseUsers();
-if (!process.env.USERS) console.warn("[auth] USERS not set — using default admin/admin. Set USERS in production.");
-const tokens = new Map(); // token -> { username, role, at }
+
+// Sessions are in memory (a redeploy signs everyone out). A session ends after
+// SESSION_IDLE_HOURS without activity (default 8) or SESSION_MAX_HOURS after sign-in (default 12).
+const SESSION_IDLE_MS = (Number(process.env.SESSION_IDLE_HOURS) || 8) * 3600000;
+const SESSION_MAX_MS  = (Number(process.env.SESSION_MAX_HOURS)  || 12) * 3600000;
+const tokens = new Map(); // token -> { username, name, role, via, at, seen }
+function issueSession(u) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const now = Date.now();
+  const role = u.via === "m365" ? ENTRA_ROLE[u.role] : u.role;
+  tokens.set(token, { username: u.username, name: u.name || u.username, role, via: u.via || "password", at: now, seen: now });
+  return token;
+}
+const sessionExpired = s => { const now = Date.now(); return now - s.seen > SESSION_IDLE_MS || now - s.at > SESSION_MAX_MS; };
+setInterval(() => { for (const [t, s] of tokens) if (sessionExpired(s)) tokens.delete(t); }, 10 * 60000).unref();
+
+const M365 = require("./m365-auth")(app, { appName: "GR Scheduler", issueSession });
+// The old admin/admin default applies only when nothing else can sign in.
+if (!USERS.length && !M365.enabled) {
+  USERS.push({ username: "admin", password: "admin", role: "admin" });
+  console.warn("[auth] USERS not set and Microsoft sign-in not configured — using default admin/admin. Set USERS in production.");
+}
+
+// Password throttle: 5 wrong attempts per username+address (20 per address) locks 15 minutes.
+const LOGIN_LOCK_MS = 15 * 60000;
+const loginFails = new Map();
+function loginLocked(key) { const f = loginFails.get(key); return f && f.until > Date.now() ? f.until : 0; }
+function noteLoginFail(key, limit) {
+  const now = Date.now();
+  let f = loginFails.get(key);
+  if (!f || now - f.first > LOGIN_LOCK_MS) f = { n: 0, first: now, until: 0 };
+  f.n++;
+  if (f.n >= limit) f.until = now + LOGIN_LOCK_MS;
+  loginFails.set(key, f);
+}
+setInterval(() => { const now = Date.now(); for (const [k, f] of loginFails) if (f.until < now && now - f.first > LOGIN_LOCK_MS) loginFails.delete(k); }, 10 * 60000).unref();
+function sameSecret(a, b) {
+  const ha = crypto.createHash("sha256").update(String(a ?? "")).digest();
+  const hb = crypto.createHash("sha256").update(String(b ?? "")).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
 
 app.post("/auth/login", (req, res) => {
+  if (!M365.passwordLogin) return res.status(403).json({ error: "Password sign-in is turned off — use Sign in with Microsoft." });
   const { username, password } = req.body || {};
-  const u = USERS.find(u => u.username === username && u.password === password);
-  if (!u) return res.status(401).json({ error: "Invalid username or password" });
-  const token = crypto.randomBytes(24).toString("hex");
-  tokens.set(token, { username: u.username, role: u.role, at: Date.now() });
+  const userKey = `${req.ip}|${String(username || "").toLowerCase()}`, ipKey = `ip|${req.ip}`;
+  const lockedUntil = Math.max(loginLocked(userKey), loginLocked(ipKey));
+  if (lockedUntil) {
+    const mins = Math.ceil((lockedUntil - Date.now()) / 60000);
+    return res.status(429).json({ error: `Too many failed sign-in attempts. Try again in ${mins} minute${mins === 1 ? "" : "s"}.` });
+  }
+  let u = null;
+  for (const c of USERS) { const ok = sameSecret(c.username, username) & sameSecret(c.password, password); if (ok && !u) u = c; }
+  if (!u) {
+    noteLoginFail(userKey, 5); noteLoginFail(ipKey, 20);
+    console.warn(`[auth] failed password sign-in for "${String(username || "").slice(0, 60)}" from ${req.ip}`);
+    return res.status(401).json({ error: "Invalid username or password" });
+  }
+  loginFails.delete(userKey);
+  const token = issueSession({ username: u.username, role: u.role, via: "password" });
+  console.log(`[auth] ${u.username} signed in with password as ${u.role}`);
   res.json({ token, username: u.username, role: u.role });
 });
 app.post("/auth/logout", (req, res) => { const t = bearer(req); if (t) tokens.delete(t); res.json({ ok: true }); });
@@ -71,6 +140,8 @@ function bearer(req) { const h = req.headers.authorization || ""; return h.start
 function auth(req, res, next) {
   const t = bearer(req); const s = t && tokens.get(t);
   if (!s) return res.status(401).json({ error: "Not authenticated" });
+  if (sessionExpired(s)) { tokens.delete(t); return res.status(401).json({ error: "Your session has expired — please sign in again." }); }
+  s.seen = Date.now();
   req.user = s; next();
 }
 function requireRole(...roles) {
@@ -80,7 +151,7 @@ function requireRole(...roles) {
 const canWrite = requireRole("admin", "scheduler");
 const isAdmin = requireRole("admin");
 
-app.get("/api/me", auth, (req, res) => res.json({ username: req.user.username, role: req.user.role, invoicedesk: invoicedesk.configured(), persistent: PERSISTENT }));
+app.get("/api/me", auth, (req, res) => res.json({ username: req.user.username, name: req.user.name, via: req.user.via, role: req.user.role, invoicedesk: invoicedesk.configured(), persistent: PERSISTENT }));
 
 // ─── Generic CRUD factory for a JSON store ────────────────────────────────────
 function crud(name, prefix) {

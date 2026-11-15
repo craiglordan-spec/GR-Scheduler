@@ -122,6 +122,8 @@
   #login .box{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.15);padding:34px;width:360px}
   #login .brand{font-size:26px;margin-bottom:2px}
   #login .err{color:#DC2626;font-size:12px;margin-top:8px;min-height:16px}
+  .ms-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;border:1px solid #8C8C8C;border-radius:6px;background:#fff;color:#5E5E5E;font-family:'Segoe UI',sans-serif;font-weight:600;font-size:14px;text-decoration:none;cursor:pointer;box-sizing:border-box}
+  .ms-btn:hover{background:#F3F3F3}
   .hide{display:none!important}
   footer{margin-top:16px;font-size:11px;color:var(--text3);text-align:center;line-height:1.7}
 </style>
@@ -131,9 +133,15 @@
   <div class="box">
     <div class="brand serif">GR Project Control</div>
     <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);margin-bottom:20px">Scheduler &amp; Timeline</div>
+    <div id="lg-ms" style="display:none">
+      <a href="/auth/m365/login" class="ms-btn"><svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>Sign in with Microsoft</a>
+      <div id="lg-or" style="display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--text3);font-size:11px;font-weight:700;letter-spacing:.08em"><span style="flex:1;height:1px;background:var(--border)"></span>OR<span style="flex:1;height:1px;background:var(--border)"></span></div>
+    </div>
+    <div id="lg-pw">
     <div class="field"><label>Username</label><input id="lg-user" autocomplete="username"/></div>
     <div class="field"><label>Password</label><input id="lg-pass" type="password" autocomplete="current-password"/></div>
     <button class="btn primary" style="width:100%;padding:10px" onclick="doLogin()">Sign in</button>
+    </div>
     <div class="err" id="lg-err"></div>
   </div>
 </div>
@@ -263,7 +271,7 @@ const TODAY=new Date();
 // ─── API ──────────────────────────────────────────────────────────────────
 async function api(path,opts={}){
   const r=await fetch(path,{...opts,headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN,...(opts.headers||{})}});
-  if(r.status===401){logout();throw new Error('unauth');}
+  if(r.status===401){handleUnauth();throw new Error('unauth');}
   if(!r.ok){let m='Request failed';try{m=(await r.json()).error||m;}catch{}throw new Error(m);}
   return r.status===204?null:r.json();
 }
@@ -275,7 +283,7 @@ async function downloadBackup(){
   const btn=document.getElementById('backupBtn');const old=btn.textContent;btn.disabled=true;btn.textContent='Preparing…';
   try{
     const r=await fetch('/api/backup',{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(r.status===401){logout();return;}
+    if(r.status===401){handleUnauth();return;}
     if(!r.ok){let m='Backup failed';try{m=(await r.json()).error||m;}catch{}throw new Error(m);}
     const blob=await r.blob();
     let name='gr-scheduler-backup.zip';
@@ -292,7 +300,7 @@ async function doRestore(input){
   try{
     const buf=await file.arrayBuffer();
     const r=await fetch('/api/restore',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/zip'},body:buf});
-    if(r.status===401){logout();return;}
+    if(r.status===401){handleUnauth();return;}
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(d.error||'Restore failed');
     const c=d.counts||{};
@@ -308,18 +316,30 @@ async function doLogin(){
   const password=document.getElementById('lg-pass').value;
   try{
     const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
-    if(!r.ok){document.getElementById('lg-err').textContent=(await r.json()).error||'Login failed';return;}
+    if(!r.ok){document.getElementById('lg-err').textContent=(await r.json().catch(()=>({}))).error||'Login failed';return;}
     const d=await r.json(); TOKEN=d.token; localStorage.setItem('gr_token',TOKEN); await boot();
   }catch(e){document.getElementById('lg-err').textContent='Could not reach server';}
 }
 document.getElementById('lg-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
-function logout(){TOKEN='';localStorage.removeItem('gr_token');document.getElementById('main').classList.add('hide');document.getElementById('login').classList.remove('hide');}
+// Session ended (401): back to the sign-in screen.
+function handleUnauth(msg){TOKEN='';ME=null;localStorage.removeItem('gr_token');document.getElementById('main').classList.add('hide');document.getElementById('login').classList.remove('hide');if(msg)document.getElementById('lg-err').textContent=msg;}
+// Sign out: end the session on the server too, then reload so a new deploy is picked up.
+function logout(){const done=fetch('/auth/logout',{method:'POST',headers:TOKEN?{'Authorization':'Bearer '+TOKEN}:{}}).catch(()=>{});TOKEN='';ME=null;localStorage.removeItem('gr_token');done.finally(()=>location.replace(location.pathname));}
+// Sign-in options come from the server: Microsoft button and/or password form.
+async function initLoginScreen(errMsg){
+  let cfg={m365:false,password:true};
+  try{const r=await fetch('/auth/config');if(r.ok)cfg=await r.json();}catch(_){}
+  document.getElementById('lg-ms').style.display=cfg.m365?'block':'none';
+  document.getElementById('lg-pw').style.display=cfg.password?'block':'none';
+  document.getElementById('lg-or').style.display=cfg.m365&&cfg.password?'flex':'none';
+  if(errMsg)document.getElementById('lg-err').textContent=errMsg;
+}
 
 async function boot(){
-  try{ME=await api('/api/me');}catch{logout();return;}
+  try{ME=await api('/api/me');}catch{handleUnauth();return;}
   document.getElementById('login').classList.add('hide');
   document.getElementById('main').classList.remove('hide');
-  document.getElementById('whoami').textContent=`${ME.username} · ${ME.role}`;
+  document.getElementById('whoami').textContent=`${ME.name||ME.username} · ${ME.role}`;
   const isAdmin=ME.role==='admin';
   document.getElementById('backupBtn').style.display=isAdmin?'':'none';
   document.getElementById('restoreBtn').style.display=isAdmin?'':'none';
@@ -898,8 +918,26 @@ document.getElementById('rpane').addEventListener('scroll',e=>{document.getEleme
 document.querySelectorAll('.toggle').forEach(t=>t.addEventListener('click',()=>{shown[t.dataset.cat]=!shown[t.dataset.cat];t.classList.toggle('off',!shown[t.dataset.cat]);render();}));
 document.querySelectorAll('[data-zoom]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-zoom]').forEach(z=>z.classList.remove('on'));b.classList.add('on');dayW=ZOOM_BASE*parseFloat(b.dataset.zoom);render();}));
 
-// boot if token present
-if(TOKEN)boot();
+// Returning from Microsoft sign-in: swap the one-time code in the URL fragment for a session,
+// then boot if we hold a token.
+(async function(){
+  let ssoErr='';
+  const h=new URLSearchParams(location.hash.slice(1));
+  if(h.has('sso')||h.has('sso_error')){
+    history.replaceState(null,'',location.pathname+location.search);
+    if(h.get('sso_error'))ssoErr=h.get('sso_error');
+    else{
+      try{
+        const r=await fetch('/auth/m365/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:h.get('sso')})});
+        const d=await r.json().catch(()=>({}));
+        if(r.ok&&d.token){TOKEN=d.token;localStorage.setItem('gr_token',TOKEN);}
+        else ssoErr=d.error||'Microsoft sign-in could not be completed.';
+      }catch(_){ssoErr='Could not reach server';}
+    }
+  }
+  await initLoginScreen(ssoErr);
+  if(TOKEN)boot();
+})();
 </script>
 </body>
 </html>

@@ -8,11 +8,11 @@ npm install
 cp .env.example .env      # edit values
 npm start                 # http://localhost:4100
 ```
-With no `INVOICEDESK_API_KEY` set, it runs on **bundled sample data** so you can click around immediately. Default login (if `USERS` unset): `admin` / `admin`.
+With no `INVOICEDESK_API_KEY` set, it runs on **bundled sample data** so you can click around immediately. Default login (if `USERS` unset and Microsoft sign-in not configured): `admin` / `admin`. Microsoft 365 sign-in: see `M365-SETUP.md`.
 
 ## Deploy on Railway
 1. Push this repo to GitHub, create a Railway service from it.
-2. Set variables (see `.env.example`): `USERS`, `SESSION_SECRET`, `INVOICEDESK_URL`, `INVOICEDESK_API_KEY`.
+2. Set variables (see `.env.example`): `USERS`, `M365_*` (see `M365-SETUP.md`), `INVOICEDESK_URL`, `INVOICEDESK_API_KEY`.
 3. Add a persistent volume mounted at `/data` and set `DATA_DIR=/data` so scheduling data survives redeploys.
 
 ## Users & roles
