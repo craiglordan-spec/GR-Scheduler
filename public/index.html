@@ -27,6 +27,8 @@
   .btn{font-family:inherit;font-size:12px;font-weight:600;border:1px solid var(--border);background:#fff;color:var(--text2);border-radius:7px;padding:6px 12px;cursor:pointer;transition:.12s}
   .btn:hover{border-color:#C7CDDA;color:var(--text)}
   .btn.on{background:var(--text);color:#fff;border-color:var(--text)}
+  .pfilter{font-family:inherit;font-size:12px;font-weight:600;border:1px solid var(--border);background:#fff;color:var(--text2);border-radius:7px;padding:5px 8px;cursor:pointer;max-width:240px}
+  .pfilter.on{border-color:var(--exec);color:var(--exec);background:#EFF4FF}
   .btn.primary{background:var(--exec);color:#fff;border-color:var(--exec)}
   .btn.primary:hover{filter:brightness(1.06)}
   .btn.sm{padding:3px 9px;font-size:11px}
@@ -190,6 +192,7 @@
           <button class="btn on" data-zoom="1">Month</button>
           <button class="btn" data-zoom="2.1">Week</button>
           <span style="width:6px"></span>
+          <select class="pfilter" id="ganttProj" onchange="setGanttProj(this.value)" title="Show one project on the chart, or all"></select>
           <button class="btn on" id="scopeBtn" onclick="toggleScope()" title="Show only projects that have activities, equipment or bookings">Scheduled only</button>
           <button class="btn" id="scopeMgrBtn" onclick="openScope()" title="Choose which projects appear in the project dropdowns" style="display:none">⚙ Projects in scope</button>
           <button class="btn" id="reschedBtn" onclick="reschedule()" title="Recalculate all dependent activity dates from their predecessors" style="display:none">↻ Reschedule</button>
@@ -273,6 +276,8 @@ let dayW=3.05; const ZOOM_BASE=3.05;
 const shown={exec:true,equip:true,people:true,inv:true};
 let selected=null, tab='activities';
 let showEmptyProjects=false;
+// Gantt project filter: '' = all projects, otherwise one project id (remembered on this browser).
+let ganttProj=localStorage.getItem('gr_ganttproj')||'';
 let START=new Date(2026,6,1), END=new Date(2027,2,31);
 const TODAY=new Date();
 
@@ -358,7 +363,7 @@ async function boot(){
   if(ME.persistent===false){pw.style.display='block';pw.textContent='⚠ Storage is NOT persistent — entries will be lost on the next redeploy. Attach a Railway volume to this service (or set DATA_DIR to its mount path) and redeploy.';}
   else{pw.style.display='none';}
   await loadAll(); computeWindow(); render(); renderDrawer(); updateChip();
-  const firstScheduled=projects.find(p=>projectHasSchedule(p.id))||projects[0];
+  const firstScheduled=projects.find(p=>p.id===ganttProj)||projects.find(p=>projectHasSchedule(p.id))||projects[0];
   if(firstScheduled)showDetail(firstScheduled.id);
 }
 async function loadAll(){
@@ -382,9 +387,11 @@ function updateChip(){
 // ─── Timeline window auto-fit ─────────────────────────────────────────────────
 function computeWindow(){
   const ds=[]; const push=x=>{if(x)ds.push(new Date(x));};
-  activities.forEach(a=>{push(a.start);push(a.end);});
-  equipment.forEach(e=>{push(e.orderDate);push(e.eta);});
-  bookings.forEach(b=>{push(b.start);push(b.end);});
+  const one=ganttProj&&projects.some(p=>p.id===ganttProj)?ganttProj:'';
+  const inView=r=>!one||r.projectId===one;  // filtered to one project → fit to its dates
+  activities.filter(inView).forEach(a=>{push(a.start);push(a.end);});
+  equipment.filter(inView).forEach(e=>{push(e.orderDate);push(e.eta);});
+  bookings.filter(inView).forEach(b=>{push(b.start);push(b.end);});
   if(!ds.length){START=new Date(2026,6,1);END=new Date(2027,2,31);return;}
   let lo=new Date(Math.min(...ds)),hi=new Date(Math.max(...ds));
   lo.setDate(1); hi=new Date(hi.getFullYear(),hi.getMonth()+1,0);
@@ -446,7 +453,26 @@ function markCritical(nodes){
 function projectHasSchedule(id){
   return activities.some(a=>a.projectId===id)||equipment.some(e=>e.projectId===id)||bookings.some(b=>b.projectId===id);
 }
-function visibleProjects(){return showEmptyProjects?projects:projects.filter(p=>projectHasSchedule(p.id));}
+function visibleProjects(){
+  if(ganttProj){const one=projects.find(p=>p.id===ganttProj);if(one)return [one];}
+  return showEmptyProjects?projects:projects.filter(p=>projectHasSchedule(p.id));
+}
+function setGanttProj(id){
+  ganttProj=id||'';
+  if(ganttProj)localStorage.setItem('gr_ganttproj',ganttProj);else localStorage.removeItem('gr_ganttproj');
+  computeWindow();
+  if(ganttProj)showDetail(ganttProj);else render();
+  document.getElementById('rpane').scrollLeft=0;
+}
+// Dropdown: All projects, then each project that has a schedule (or every project when
+// "All projects" is toggled on), plus the current choice.
+function renderProjFilter(){
+  const sel=document.getElementById('ganttProj');if(!sel)return;
+  if(ganttProj&&!projects.some(p=>p.id===ganttProj)){ganttProj='';localStorage.removeItem('gr_ganttproj');}
+  const list=projects.filter(p=>showEmptyProjects||projectHasSchedule(p.id)||p.id===ganttProj).slice().sort((a,b)=>(a.id||'').localeCompare(b.id||''));
+  sel.innerHTML=`<option value="">All projects</option>`+list.map(p=>`<option value="${esc(p.id)}" ${p.id===ganttProj?'selected':''}>${esc(p.id)} — ${esc(p.name)}</option>`).join('');
+  sel.value=ganttProj; sel.classList.toggle('on',!!ganttProj);
+}
 function buildRows(){
   const rows=[]; const allEdges=[]; const critEdges=new Set();
   const list=visibleProjects();
@@ -470,6 +496,7 @@ let LAST={rows:[],allEdges:[],critEdges:new Set()};
 
 function render(){
   const totalW=totalDays()*dayW;
+  renderProjFilter();
   const {rows,allEdges,critEdges}=buildRows(); LAST={rows,allEdges,critEdges};
   const bodyH=rows.length*ROW_H;
   renderKPIs();
@@ -573,7 +600,7 @@ function renderKPIs(){
   const overdue=arV.filter(i=>i.status==='Overdue');
   const eqOrder=equipment.filter(e=>ids.has(e.projectId)&&e.status!=='delivered').length;
   const todo=bookings.filter(b=>ids.has(b.projectId)&&b.status==='todo').length;
-  const scope=showEmptyProjects?'all projects':'scheduled';
+  const scope=ganttProj?'this project':showEmptyProjects?'all projects':'scheduled';
   document.getElementById('kpis').innerHTML=[
     {l:'Projects on programme',v:vp.filter(p=>p.status==='Active').length,s:vp.length+' shown · '+scope},
     {l:'Contract value',v:fmt(totVal),s:'AUD · '+scope},
