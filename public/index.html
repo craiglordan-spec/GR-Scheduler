@@ -9,7 +9,7 @@
   :root{
     --bg:#F7F8FA;--surface:#FFF;--surface2:#F1F3F7;--border:#E2E6EE;
     --text:#1A1D26;--text2:#4B5162;--text3:#8B90A0;
-    --exec:#1D4ED8;--equip:#B45309;--people:#7C3AED;--ms:#0E9488;--crit:#DC2626;
+    --exec:#1D4ED8;--equip:#B45309;--people:#7C3AED;--ms:#0E9488;--crit:#DC2626;--done:#15803D;
     --draft:#6B7280;--submitted:#B45309;--approved:#1D4ED8;--paid:#15803D;--overdue:#DC2626;
     --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
   }
@@ -69,6 +69,13 @@
   .bar:hover{filter:brightness(1.06);outline:2px solid rgba(0,0,0,.12)}
   .bar.crit{outline:2px solid var(--crit);outline-offset:1px}
   .bar .prog{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.28);border-radius:5px 0 0 5px}
+  /* 100% complete: green tick badge on bars, milestones and the task list */
+  .bar.done{opacity:.78}
+  .bar.done .prog{display:none}
+  .bar .tick{position:relative;flex:0 0 auto;width:14px;height:14px;border-radius:50%;background:var(--done);border:1.5px solid #fff;color:#fff;font-size:9px;line-height:11px;text-align:center;font-weight:800;margin:0 5px 0 -4px}
+  .ms .tick{position:absolute;inset:0;transform:rotate(-45deg);color:#fff;font-size:10px;font-weight:800;line-height:11px;text-align:center}
+  .lrow .done-tick{flex:0 0 auto;margin-left:6px;width:15px;height:15px;border-radius:50%;background:var(--done);color:#fff;font-size:9px;line-height:15px;text-align:center;font-weight:800}
+  .lrow.done .tname{color:var(--text3)}
   .ms{position:absolute;width:15px;height:15px;transform:rotate(45deg);border-radius:3px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.2)}
   .mslabel{position:absolute;font-size:10px;font-weight:700;white-space:nowrap}
   .invmark{position:absolute;width:11px;height:11px;border-radius:50%;border:2px solid #fff;cursor:pointer;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
@@ -202,6 +209,7 @@
         <span><span class="sw" style="background:var(--equip)"></span>Equipment lead time</span>
         <span><span class="sw" style="background:var(--people)"></span>Training / medical / travel</span>
         <span><span class="sw dia" style="background:var(--ms)"></span>Milestone (fill = % complete)</span>
+        <span><span class="sw" style="background:var(--done);border-radius:50%;color:#fff;font-size:8px;line-height:11px;text-align:center;font-weight:800">✓</span>100% complete</span>
         <span><span class="sw" style="background:var(--crit);border-radius:50%"></span>Critical path</span>
         <span style="color:var(--text3)">· double-click a bar or milestone to edit</span>
       </div>
@@ -390,6 +398,8 @@ const fmtd=dt=>dt?dt.toLocaleDateString('en-AU',{day:'numeric',month:'short'}):'
 const arEx=inv=>(inv.lines||[]).reduce((s,l)=>s+(Number(l.qty)||0)*(Number(l.rate)||0),0);
 
 // ─── Node + dependency model ──────────────────────────────────────────────────
+// An activity or milestone counts as complete at 100%.
+const isDone=n=>(n.kind==='activity'||n.kind==='milestone')&&(n.prog||0)>=0.999;
 function nodesFor(pj){
   const ns=[];
   activities.filter(a=>a.projectId===pj).forEach(a=>ns.push({
@@ -469,8 +479,8 @@ function render(){
 
   document.getElementById('lrows').innerHTML=rows.map(r=>{
     if(r.grp)return `<div class="lrow grp ${selected===r.pj?'sel':''}" data-pj="${r.pj}"><span class="pid">${r.pj}</span><span class="tname">${esc(r.p.name)}</span></div>`;
-    const n=r.n; const col=CATCOL[n.cat]||CATCOL.exec;
-    return `<div class="lrow ${selected===n.pj?'sel':''}" data-pj="${n.pj}"><span class="catdot" style="background:${col}"></span><span class="tname">${esc(n.name)}</span></div>`;
+    const n=r.n; const col=CATCOL[n.cat]||CATCOL.exec; const done=isDone(n);
+    return `<div class="lrow ${selected===n.pj?'sel':''} ${done?'done':''}" data-pj="${n.pj}"><span class="catdot" style="background:${col}"></span><span class="tname">${esc(n.name)}</span>${done?'<span class="done-tick" title="100% complete">✓</span>':''}</div>`;
   }).join('');
 
   const rhead=document.getElementById('rhead'); rhead.style.width=totalW+'px'; rhead.innerHTML='';
@@ -506,20 +516,24 @@ function render(){
       el.style.border='2px solid '+col;
       // fill the diamond by % complete: hollow at 0, solid at 100, gradient between (mirrors activity progress)
       el.style.background=pct<=0?'#fff':pct>=100?col:`linear-gradient(to top, ${col} ${pct}%, #fff ${pct}%)`;
-      const state=pct>=100?'achieved':pct>0?pct+'% complete':'not started';
+      if(pct>=100){el.style.background='var(--done)';el.style.borderColor=n.crit?col:'var(--done)';el.innerHTML='<span class="tick">✓</span>';}
+      const state=pct>=100?'<span style="color:#86EFAC">✓ achieved</span>':pct>0?pct+'% complete':'not started';
       el.dataset.tip=`<b>◆ ${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} · ${state}</span>${n.notes?'<br><span class="r">📝 '+esc(n.notes)+'</span>':''}`;el.dataset.pj=n.pj;el.dataset.id=n.id;el.dataset.etype='activities';bars.appendChild(el);
-      const lab=document.createElement('div');lab.className='mslabel';lab.style.color=col;lab.style.left=(x(n.start)+12)+'px';lab.style.top=(top+10)+'px';lab.textContent=n.name;bars.appendChild(lab);
+      const lab=document.createElement('div');lab.className='mslabel';lab.style.color=pct>=100?'var(--done)':col;lab.style.left=(x(n.start)+12)+'px';lab.style.top=(top+10)+'px';lab.textContent=n.name;bars.appendChild(lab);
       return;
     }
     if(!n.start||!n.end)return;
     const left=x(n.start),w=Math.max((n.end-n.start)/DAY*dayW+dayW,6);
-    const el=document.createElement('div');el.className='bar'+(n.crit?' crit':'');el.style.left=left+'px';el.style.top=(top+7)+'px';el.style.width=w+'px';el.style.background=CATCOL[n.cat];
+    const done=n.kind==='activity'&&isDone(n);
+    const el=document.createElement('div');el.className='bar'+(n.crit?' crit':'')+(done?' done':'');el.style.left=left+'px';el.style.top=(top+7)+'px';el.style.width=w+'px';el.style.background=CATCOL[n.cat];
     if(n.prog>0){const pg=document.createElement('div');pg.className='prog';pg.style.width=(n.prog*100)+'%';el.appendChild(pg);}
+    if(done){const tk=document.createElement('span');tk.className='tick';tk.textContent='✓';el.appendChild(tk);}
     const sp=document.createElement('span');sp.style.position='relative';sp.textContent=n.name;el.appendChild(sp);
     const wks=Math.round((n.end-n.start)/DAY/7);
     let extra='';
     if(n.kind==='equipment')extra=`<br><span class="r">${esc(n.supplier||'')} · ${esc(n.status||'')}</span><br><span class="r">ETA ${fmtd(n.end)}</span>`;
     if(n.kind==='booking')extra=`<br><span class="r">status: ${esc(n.bstatus||'')}</span>`;
+    if(n.kind==='activity'){const pc=Math.round((n.prog||0)*100);extra=done?'<br><span style="color:#86EFAC">✓ 100% complete</span>':`<br><span class="r">${pc}% complete</span>`;}
     el.dataset.tip=`<b>${esc(n.name)}</b><br><span class="r">${fmtd(n.start)} → ${fmtd(n.end)} · ${wks} wk${wks!==1?'s':''}</span>${extra}${n.crit?'<br><span style="color:#FCA5A5">● critical path</span>':''}${n.notes?'<br><span class="r">📝 '+esc(n.notes)+'</span>':''}`;
     el.dataset.pj=n.pj;el.dataset.id=n.id;el.dataset.etype=n.kind==='equipment'?'equipment':n.kind==='booking'?'bookings':'activities';bars.appendChild(el);
   });
