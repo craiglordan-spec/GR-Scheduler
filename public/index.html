@@ -765,7 +765,7 @@ function openForm(type,id){
     <div class="field"><label>Role</label><input id="f-role" value="${esc(rec.role)}"/></div>
     <div class="grid2"><div class="field"><label>Ticket expiry</label><input id="f-ticketExpiry" type="date" value="${esc(rec.ticketExpiry)}"/></div><div class="field"><label>Notes</label><input id="f-notes" value="${esc(rec.notes)}"/></div></div>`;
   const singular={activities:'activity',equipment:'equipment item',bookings:'booking',crew:'crew member'}[type]||type;
-  document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeForm()"><div class="modal"><h3>${id?'Edit':'New'} ${singular}</h3>${fields}<div style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" onclick="saveForm('${type}','${id||''}')">Save</button></div></div></div>`;
+  document.getElementById('modalRoot').innerHTML=`<div class="overlay"><div class="modal"><h3>${id?'Edit':'New'} ${singular}</h3>${fields}<div style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" onclick="saveForm('${type}','${id||''}')">Save</button></div></div></div>`;
 }
 function closeForm(){document.getElementById('modalRoot').innerHTML='';}
 function toggleFinishMode(){const m=gv('f-finmode');const we=document.getElementById('wrap-end'),wd=document.getElementById('wrap-days');if(we)we.style.display=m==='days'?'none':'';if(wd)wd.style.display=m==='days'?'':'none';}
@@ -779,7 +779,7 @@ function openScope(){
       <b style="min-width:52px">${esc(p.id)}</b><span style="flex:1">${esc(p.name)}</span>
       ${has?'<span style="font-size:10px;color:var(--text3)">has entries</span>':''}</label>`;
   }).join('');
-  document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeForm()"><div class="modal">
+  document.getElementById('modalRoot').innerHTML=`<div class="overlay"><div class="modal">
     <h3>Projects in scope</h3>
     <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Tick the projects you're actively scheduling. Only these (plus any that already have entries) appear in the project dropdowns. Projects with entries stay in scope automatically.</div>
     <div style="margin-bottom:10px"><input id="scope-search" placeholder="Filter…" oninput="filterScope(this.value)" style="width:100%;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:7px"/></div>
@@ -936,7 +936,7 @@ function openAssetForm(id){
     <div class="grid2"><div class="field"><label>Working load limit (WLL)</label><input id="a-wll" value="${esc(rec.wll)}" placeholder="e.g. 3.2 t — rigging/lifting"/></div><div class="field"><label>&nbsp;</label><div style="font-size:11px;color:var(--text3);padding-top:8px">Leave WLL blank for non-lifting items.</div></div></div>
     <div class="grid2"><div class="field"><label>Calibration due <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">— test gear</span></label><input id="a-calibrationDue" type="date" value="${esc(rec.calibrationDue)}"/></div><div class="field"><label>Inspection due <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">— rigging/lifting</span></label><input id="a-inspectionDue" type="date" value="${esc(rec.inspectionDue)}"/></div></div>
     <div class="field"><label>Notes</label><textarea id="a-notes" rows="2" placeholder="Optional — e.g. inspection interval, cert reference">${esc(rec.notes||'')}</textarea></div>`;
-  document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeForm()"><div class="modal"><h3>${id?'Edit':'New'} asset</h3>${fields}<div style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" onclick="saveAsset('${id||''}')">Save</button></div></div></div>`;
+  document.getElementById('modalRoot').innerHTML=`<div class="overlay"><div class="modal"><h3>${id?'Edit':'New'} asset</h3>${fields}<div style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="closeForm()">Cancel</button><button class="btn primary" onclick="saveAsset('${id||''}')">Save</button></div></div></div>`;
 }
 async function saveAsset(id){
   const val=gv('a-purchaseValue');
